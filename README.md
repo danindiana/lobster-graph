@@ -18,6 +18,13 @@ no cloud dependency.
 ![neon-diagram-aesthetic](https://img.shields.io/badge/theme-neon--on--black-00FF41?style=flat-square)
 ![rust-ratatui](https://img.shields.io/badge/TUI-ratatui-FF00FF?style=flat-square)
 ![ollama](https://img.shields.io/badge/backend-ollama-00FFFF?style=flat-square)
+![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+![python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![rust](https://img.shields.io/badge/rust-stable-CE422B?style=flat-square&logo=rust&logoColor=white)
+![platform](https://img.shields.io/badge/platform-linux-FCC624?style=flat-square&logo=linux&logoColor=black)
+![gpu](https://img.shields.io/badge/GPU-CUDA%20dual--GPU-76b900?style=flat-square&logo=nvidia&logoColor=white)
+![status](https://img.shields.io/badge/status-active-brightgreen?style=flat-square)
+![no-cloud](https://img.shields.io/badge/cloud-none%20%7C%20local--only-lightgrey?style=flat-square)
 
 ## How it works
 
