@@ -1019,8 +1019,9 @@ def main():
     )
     ap.add_argument(
         "--reprocess", default=None,
+        choices=["summary", "logic", "cpp", "diagrams", "extras", "all"],
         metavar="SECTION",
-        help="Re-run a specific section for all papers: summary|logic|cpp|diagrams|extras|all",
+        help="Re-run a specific section: summary|logic|cpp|diagrams|extras|all",
     )
     ap.add_argument(
         "--override", action="store_true",
@@ -1035,6 +1036,9 @@ def main():
         help="Extra debug output",
     )
     args = ap.parse_args()
+
+    if args.workers < 1:
+        ap.error("--workers must be >= 1")
 
     papers_dir = Path(args.papers_dir)
     if not papers_dir.exists():

@@ -1,0 +1,82 @@
+name: Bug Report
+description: Something is broken or behaving unexpectedly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check [TROUBLESHOOTING.md](../../docs/TROUBLESHOOTING.md) for known issues.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "The pipeline crashes when processing papers longer than 50 pages."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact command(s) you ran.
+      render: bash
+      placeholder: |
+        python3 paper_processor.py --paper "attention.pdf" --model deepseek-r1:14b
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      placeholder: "Should produce 01_summary.md without error."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour / error output
+      render: text
+      placeholder: "Traceback (most recent call last): ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: metadata
+    attributes:
+      label: metadata.json snippet (if applicable)
+      description: Paste the relevant paper's metadata.json so we can see which stages completed.
+      render: json
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      placeholder: "3.10.12"
+    validations:
+      required: true
+
+  - type: input
+    id: ollama_version
+    attributes:
+      label: Ollama version
+      placeholder: "ollama version is 0.6.0"
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU(s) and VRAM
+      placeholder: "RTX 3080 10 GB + RTX 3060 12 GB"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, nvidia-smi output, Ollama service status, etc.

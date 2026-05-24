@@ -85,6 +85,48 @@ _processed/<subfolder>/<slug>/
 └── metadata.json              # model, hash, sections completed
 ```
 
+<details>
+<summary>Example: generated summary snippet (01_summary.md)</summary>
+
+```markdown
+# Summary: Attention Is All You Need
+
+## 1. Motivation & Problem Statement
+Sequence-to-sequence models at the time relied on recurrent or convolutional
+architectures as their backbone encoder-decoder. Recurrence serialises
+computation across the sequence length, preventing parallelisation during
+training and introducing vanishing-gradient difficulties over long contexts.
+The authors propose replacing recurrence entirely with self-attention, which
+computes dependencies between all positions in constant depth.
+
+## 2. Core Methodology
+The Transformer stacks N=6 identical layers in both the encoder and decoder.
+Each layer applies multi-head attention (h=8 heads, d_model=512) followed by
+a position-wise feed-forward sublayer (d_ff=2048). Residual connections and
+layer normalisation wrap each sublayer. Positional encoding (sinusoidal) is
+added to the input embeddings to inject sequence order.
+
+## 3. Key Contributions
+- Self-attention with O(1) sequential operations vs O(n) for recurrence.
+- Multi-head attention: projects queries, keys, and values h times in parallel.
+- Scaled dot-product attention: divides by √d_k to prevent vanishing softmax
+  gradients in high-dimensional spaces.
+
+## 4. Experimental Results
+WMT 2014 English→German: 28.4 BLEU (new SOTA, +2 BLEU over prior ensemble).
+WMT 2014 English→French: 41.0 BLEU, single model, fraction of training cost.
+Training: 8× P100 GPUs, 3.5 days for the big model.
+
+## 5. Limitations
+- Quadratic memory cost in sequence length (attention matrix is n×n).
+- No explicit inductive bias for locality — may require more data than CNNs
+  on tasks where local structure matters.
+- Positional encoding is fixed sinusoidal; learned embeddings explored but
+  not adopted.
+```
+
+</details>
+
 ## Hardware targets
 
 Written for a dual-GPU workstation (validated on RTX 3080 10 GB + RTX 3060

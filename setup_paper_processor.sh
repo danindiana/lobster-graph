@@ -98,7 +98,43 @@ else
     warn "openclaw not found in PATH — use --backend ollama (default)"
 fi
 
-# ── 8. Smoke test ──────────────────────────────────────────────────────────
+# ── 8. Rust + wizard build ─────────────────────────────────────────────────
+log "Checking Rust toolchain …"
+SCRIPT_DIR_RUST="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WIZARD_DIR="${SCRIPT_DIR_RUST}/wizard"
+
+if ! command -v cargo &>/dev/null; then
+    warn "cargo not found — Rust is required to build the paper-wizard TUI"
+    warn "Install Rust:  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    warn "Then re-run this script to build the wizard automatically."
+else
+    CARGO_VER=$(cargo --version)
+    ok "Rust toolchain: ${CARGO_VER}"
+
+    if [[ -d "$WIZARD_DIR" ]]; then
+        log "Building paper-wizard (this may take a minute on first run) …"
+        if cargo build --release --manifest-path "${WIZARD_DIR}/Cargo.toml" 2>&1; then
+            ok "paper-wizard built: ${WIZARD_DIR}/target/release/paper-wizard"
+
+            # Install symlink to /usr/local/bin if writable, else ~/bin
+            if [[ -w /usr/local/bin ]]; then
+                INSTALL_DIR="/usr/local/bin"
+            else
+                INSTALL_DIR="${HOME}/.local/bin"
+                mkdir -p "$INSTALL_DIR"
+            fi
+            ln -sf "${WIZARD_DIR}/target/release/paper-wizard" "${INSTALL_DIR}/paper-wizard"
+            ok "Symlink created: ${INSTALL_DIR}/paper-wizard"
+        else
+            warn "cargo build failed — wizard will need to be built manually"
+            warn "  cd ${WIZARD_DIR} && cargo build --release"
+        fi
+    else
+        warn "wizard/ directory not found at ${WIZARD_DIR} — skipping build"
+    fi
+fi
+
+# ── 9. Smoke test ──────────────────────────────────────────────────────────
 log "Smoke-testing paper_processor.py …"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROCESSOR="${SCRIPT_DIR}/paper_processor.py"
