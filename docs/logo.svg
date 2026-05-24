@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="120" viewBox="0 0 820 120">
+  <!-- Background -->
+  <rect width="820" height="120" fill="#000000"/>
+  <!-- Neon green border -->
+  <rect x="1" y="1" width="818" height="118" fill="none" stroke="#00FF41" stroke-width="1.5" rx="4"/>
+
+  <!-- Left accent bar -->
+  <rect x="28" y="22" width="4" height="76" fill="#00FF41"/>
+
+  <!-- Primary text: project name -->
+  <text x="48" y="62"
+        font-family="&quot;Courier New&quot;, Courier, monospace"
+        font-size="50"
+        font-weight="bold"
+        fill="#00FF41"
+        letter-spacing="-1">paper-processor</text>
+
+  <!-- Magenta separator line -->
+  <line x1="48" y1="76" x2="772" y2="76" stroke="#FF00FF" stroke-width="1"/>
+
+  <!-- Secondary text: subtitle -->
+  <text x="48" y="98"
+        font-family="&quot;Courier New&quot;, Courier, monospace"
+        font-size="18"
+        fill="#00FFFF"
+        letter-spacing="1">AI/ML Research Paper Pipeline  ·  local LLMs  ·  neon diagrams</text>
+
+  <!-- Right corner accent dots -->
+  <circle cx="790" cy="22" r="3" fill="#FF00FF"/>
+  <circle cx="800" cy="22" r="3" fill="#00FFFF"/>
+  <circle cx="810" cy="22" r="3" fill="#00FF41"/>
+</svg>

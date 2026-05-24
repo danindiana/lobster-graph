@@ -1,5 +1,9 @@
 # paper-processor
 
+<p align="center">
+  <img src="docs/logo.svg" alt="paper-processor logo" width="820">
+</p>
+
 A two-part pipeline for turning an AI/ML research-paper PDF corpus into
 structured study dossiers using local LLMs:
 
