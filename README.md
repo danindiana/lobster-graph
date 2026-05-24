@@ -99,6 +99,18 @@ Written for a dual-GPU workstation (validated on RTX 3080 10 GB + RTX 3060
 
 Single-GPU setups: force `--model deepseek-r1:14b` for all stages.
 
+## Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| Linux (Ubuntu 22.04+) | Single-platform; not tested on macOS or Windows |
+| Python 3.10+ | `python3 --version` to check |
+| Rust stable | Required for `wizard/` TUI — install via [rustup](https://rustup.rs/) |
+| [Ollama](https://ollama.com/) | Running as a local service on port 11434 |
+| graphviz | `sudo apt install graphviz` |
+| NVIDIA drivers + CUDA | `nvidia-smi` must work; CPU-only mode is untested |
+| VRAM | 10 GB minimum (single GPU); 24 GB+ recommended (dual GPU) |
+
 ## Quick start
 
 ```bash

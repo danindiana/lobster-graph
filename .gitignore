@@ -17,6 +17,17 @@ venv/
 *.swp
 .DS_Store
 
+# Python build / test artefacts
+dist/
+build/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
 # Pipeline outputs (corpus-specific, never commit)
 _processed/
 diagrams/_raw_llm_output.txt
