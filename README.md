@@ -205,9 +205,9 @@ Python side, so partial runs are recognised and resumed correctly.
 |----------|--------|
 | ![wizard overview](docs/screenshots/wizard-overview.png) | ![wizard config](docs/screenshots/wizard-config.png) |
 
-| Scan | Run |
-|------|-----|
-| ![wizard scan](docs/screenshots/wizard-scan.png) | ![wizard run](docs/screenshots/wizard-run.png) |
+| Corpus scan (103 papers indexed) | Live run — log streaming |
+|----------------------------------|--------------------------|
+| ![wizard scan](docs/screenshots/wizard-scan-live.png) | ![wizard run](docs/screenshots/wizard-run-live.png) |
 
 See [`wizard/README.md`](wizard/README.md) for full keybindings.
 
