@@ -201,6 +201,14 @@ subprocess output live with colour coding; `L` launches, `X` kills,
 from each paper's `metadata.json` using the same slug logic as the
 Python side, so partial runs are recognised and resumed correctly.
 
+| Overview | Config |
+|----------|--------|
+| ![wizard overview](docs/screenshots/wizard-overview.png) | ![wizard config](docs/screenshots/wizard-config.png) |
+
+| Scan | Run |
+|------|-----|
+| ![wizard scan](docs/screenshots/wizard-scan.png) | ![wizard run](docs/screenshots/wizard-run.png) |
+
 See [`wizard/README.md`](wizard/README.md) for full keybindings.
 
 ## CLI flags
