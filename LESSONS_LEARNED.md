@@ -5,6 +5,28 @@ remembering. Most recent entries first.
 
 ---
 
+## 2026-05-25 — Independent Main/Code Model Selection via pp.py
+
+**What happened:** Added `-c` / `--select-code-model` flag and `--code-model` arg so the
+C++ section model can be picked independently of the main model. `pp.py` now shows both
+pickers in sequence, then `os.execv`s into `paper_processor.py` with both `--model` and
+`--code-model` set.
+
+**Verified live:** `devstral:24b` (main) + `deepseek-coder-v2:16b` (C++) ran correctly on
+`2407.13885v1.pdf`. The model swap between sections was confirmed via Ollama `/api/ps`:
+devstral unloaded after section 2, deepseek-coder loaded for section 3, devstral reloaded
+for section 4.
+
+**Design rule:** Generalise interactive selectors by making the model list a parameter
+(`prompt_model_selection(models=KNOWN_GOOD_CODE_MODELS)`). One function, two behaviours,
+no code duplication.
+
+**Priority chain for code model:** `forced_code_model → forced_model → CODE_MODEL`  
+This means `--model X` still overrides both (old behaviour preserved); `--code-model Y`
+overrides only the C++ sections without touching the main model.
+
+---
+
 ## 2026-05-25 — Vision Model Was Never Being Used
 
 **What happened:** `gemma4:31b-it-q4_K_M` (a multimodal vision model, ~19 GB) was set as
