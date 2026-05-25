@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.5.1] — 2026-05-25
+
+### Fixed
+- wizard: `draw_model_picker` showed border/title but no entries. Root cause: `Paragraph`
+  silently discards any line wider than the widget's inner width when `.wrap()` is not set —
+  it does not truncate, it drops the entire line. The format string produced ~91-char lines
+  in an 88-char inner area. Fix: replaced with `List` + `render_stateful_widget` +
+  `ListState`, the same pattern used by the working Scan tab. Selection highlight and
+  keyboard navigation are unchanged.
+
+---
+
 ## [0.5.0] — 2026-05-25
 
 ### Added

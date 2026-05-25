@@ -146,6 +146,49 @@ Model swap between main/code sections confirmed working correctly.
 
 ---
 
+---
+
+## Part 5 — Wizard Picker Rendering Fix (2026-05-25, commit `a0c47fb`)
+
+### Problem
+
+Pressing `i` on the `--model` or `--code-model` field in the Config tab opened a popup
+(neon border + title rendered correctly) but the model list was completely empty.
+
+### Root cause
+
+`draw_model_picker` used `Paragraph::new(lines)` without `.wrap(Wrap { trim: false })`.
+In Ratatui 0.28, a `Paragraph` without wrap **silently discards** any line whose display
+width exceeds the widget's inner width — it does not truncate from the right, the entire
+line disappears. The format string produced ~91-char lines; the popup inner width was 88
+chars (w=90 minus 2 border columns). Every model entry was silently eaten. Only the hint
+line (50 chars, fits fine) would have shown — but it was placed first and appeared blank
+because it matched the terminal background.
+
+### Fix
+
+Replaced `Paragraph` + manual `▶ ` marker strings with:
+
+```rust
+let list = List::new(items)
+    .block(fancy_block(title, NEON_MAGENTA))
+    .highlight_style(Style::default().fg(NEON_YELLOW).add_modifier(Modifier::BOLD))
+    .highlight_symbol("▶ ");
+let mut state = ListState::default();
+state.select(Some(app.picker_idx));
+f.render_stateful_widget(list, r, &mut state);
+```
+
+This is the idiomatic Ratatui approach, identical to the working Scan tab. `ListState`
+drives selection; `highlight_symbol` adds the indicator automatically.
+
+### Lesson
+
+Use `List` for any selectable row widget in Ratatui. Reserve `Paragraph` for static text
+that is confirmed to fit within the widget bounds.
+
+---
+
 ## Commits This Session
 
 | Hash | Message |
@@ -155,3 +198,5 @@ Model swap between main/code sections confirmed working correctly.
 | `cd7dae7` | feat: interactive code model selector (-c / --select-code-model) |
 | `275b9c3` | docs: add session log |
 | `5ff7025` | docs: add LESSONS_LEARNED.md |
+| `e570074` | feat(wizard): interactive model pickers, --code-model field, fix gemma4 ref |
+| `a0c47fb` | fix(wizard): switch model picker from Paragraph to List widget |

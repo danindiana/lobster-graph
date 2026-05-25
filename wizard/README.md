@@ -30,7 +30,7 @@ canonical `~/programs/python_programs/paper_processor/` path.
 |---|---|
 | **Overview** | Pipeline explanation + live environment health (Ollama reachability + model count, Graphviz, Python deps, GPU memory) |
 | **Scan** | Recursive scan of the target directory; each PDF colour-coded by status (✅ complete / ⚠ partial / ⬜ not started). Enter queues a selected paper |
-| **Config** | `papers_dir`, `--backend`, `--model`, `--paper`, `--reprocess`, `--workers` — live form |
+| **Config** | `papers_dir`, `--backend`, `--model`, `--code-model`, `--paper`, `--reprocess`, `--workers` — live form; press `i` on `--model` or `--code-model` for interactive picker |
 | **Run** | Status strip (state · elapsed · paper · section · done count) + streaming, colour-highlighted log. `L` to launch, `X` to kill |
 | **Help** | Full keybinding reference |
 
@@ -41,8 +41,8 @@ help overlay · `F5` re-probe environment.
 
 **Scan:** `s` scan · `↑`/`↓`/`PgUp`/`PgDn` navigate · `Enter` queue paper.
 
-**Config:** `↑`/`↓` field · `←`/`→` cycle enums · type to edit text · `Enter`
-jump to Run.
+**Config:** `↑`/`↓` field · `←`/`→` cycle enums · type to edit text · `i` open
+interactive model picker (on `--model` or `--code-model` field) · `Enter` jump to Run.
 
 **Run:** `L` launch · `X` kill · `c` clear log · `↑`/`↓`/`PgUp`/`PgDn` scroll
 · `End` re-enable autoscroll.

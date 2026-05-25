@@ -5,6 +5,28 @@ remembering. Most recent entries first.
 
 ---
 
+## 2026-05-25 — Ratatui: `Paragraph` Silently Drops Wide Lines — Use `List` for Selectable Rows
+
+**What happened:** `draw_model_picker` in `wizard/src/main.rs` rendered the popup border
+and title correctly but showed no model entries inside. Navigation keys worked; pressing
+`i` set the picker flag; only the content was invisible.
+
+**Root cause:** `Paragraph::new(lines)` without `.wrap(Wrap { trim: false })` will silently
+**discard** any line whose display width exceeds the widget's inner width — it does not
+truncate from the right, it drops the entire line. The format string produced ~91-char
+lines; the popup inner width was 88 chars. Every model entry was silently eaten.
+
+**Fix:** Replace `Paragraph` with `List::new(items)` + `render_stateful_widget(list, r, &mut state)`
+using a `ListState`. This is the idiomatic Ratatui approach for selectable lists and is
+already used by the working Scan tab. `highlight_style` + `highlight_symbol("▶ ")` give
+the neon selection indicator without manual marker logic. (`a0c47fb`, 2026-05-25)
+
+**Rule:** Use `List` for any selectable row list. Reserve `Paragraph` for static, non-interactive
+text that is known to fit within its widget bounds. If you must use `Paragraph` with potentially
+long lines, always add `.wrap(Wrap { trim: false })`.
+
+---
+
 ## 2026-05-25 — Independent Main/Code Model Selection via pp.py
 
 **What happened:** Added `-c` / `--select-code-model` flag and `--code-model` arg so the
