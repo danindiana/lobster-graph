@@ -3,7 +3,7 @@
 //! Tabs: Overview · Scan · Config · Run · Help
 //! Key: Tab / Shift-Tab switch tabs, q quits, ? help.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use crossterm::{
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
@@ -14,8 +14,8 @@ use crossterm::{
 };
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
-    text::{Line, Span, Text},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Tabs, Wrap,
     },
