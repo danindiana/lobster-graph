@@ -108,20 +108,6 @@ CODE_MODEL = MODEL_TIERS["xl_code"]
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-# Curated list of known-good models for the interactive selector (-s flag).
-# Ordered by preference: best/largest first, fast fallback last.
-# (model_name, vram_label, role_label, is_default)
-KNOWN_GOOD_MODELS: List[tuple] = [
-    ("nemotron-3-nano-30b-small:latest",   "~24 GB", "xl_quality — current default",    True),
-    ("deepseek-r1:32b",                    "~19 GB", "xl_reason — chain-of-thought",    False),
-    ("deepseek-r1:14b-qwen-distill-q8_0", "~15 GB", "mid_reason — Q8 fidelity",        False),
-    ("devstral:24b",                       "~14 GB", "mid_code — code + text",          False),
-    ("qwen3.6:35b",                        "~23 GB", "xl — strong general reasoning",   False),
-    ("deepseek-r1:14b",                    "~9 GB",  "single — reliable, 9 GB",         False),
-    ("gpt-oss:20b",                        "~13 GB", "text-only alternative",           False),
-    ("deepseek-r1:8b",                     "~5 GB",  "fast — quick fallback",           False),
-]
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OLLAMA GPU PROVISIONER  (--override mode)
@@ -530,31 +516,6 @@ def select_model(page_count: int, user_override: Optional[str]) -> str:
         if page_count <= threshold:
             return MODEL_TIERS[tier_key]
     return MODEL_TIERS["xl_quality"]
-
-
-def prompt_model_selection() -> str:
-    """Numbered menu of known-good models. Returns the chosen model string."""
-    print("\n  Known-good models — select for this run:")
-    print(f"  {'#':<4} {'Model':<47} {'VRAM':<9} Role")
-    print(f"  {'─'*80}")
-    for i, (name, vram, role, is_default) in enumerate(KNOWN_GOOD_MODELS, 1):
-        marker = "  ◀" if is_default else ""
-        print(f"  {i:<4} {name:<47} {vram:<9} {role}{marker}")
-    print()
-    default_idx = next(
-        i for i, (_, _, _, d) in enumerate(KNOWN_GOOD_MODELS, 1) if d
-    )
-    while True:
-        try:
-            raw = input(f"  Enter number [{default_idx}]: ").strip()
-            idx = int(raw) if raw else default_idx
-            if 1 <= idx <= len(KNOWN_GOOD_MODELS):
-                chosen = KNOWN_GOOD_MODELS[idx - 1][0]
-                print(f"  → {chosen}\n")
-                return chosen
-        except (ValueError, EOFError):
-            pass
-        print(f"  Please enter 1–{len(KNOWN_GOOD_MODELS)}")
 
 
 def build_chunks(pages: List[str], window: int = 12, overlap: int = 2) -> List[str]:
@@ -1024,12 +985,11 @@ def main():
                   01_<title>.svg
                   …  (6+ diagrams)
 
-            Model auto-selection by page count (use -s to pick interactively):
+            Model auto-selection by page count:
               ≤ 8  pages  →  deepseek-r1:8b      (~5 GB)
               ≤ 18 pages  →  deepseek-r1:14b     (~9 GB)
               > 18 pages  →  nemotron-3-nano-30b-small (~24 GB, dual-GPU)
               C++ section →  qwen3-coder:30b      (~17 GB, dual-GPU)
-              -s / --select-model  →  numbered menu of known-good models
         """),
     )
     ap.add_argument(
@@ -1075,10 +1035,6 @@ def main():
         "--verbose", "-v", action="store_true",
         help="Extra debug output",
     )
-    ap.add_argument(
-        "--select-model", "-s", action="store_true",
-        help="Interactively choose the model before processing (overrides auto-selection by page count)",
-    )
     args = ap.parse_args()
 
     if args.workers < 1:
@@ -1114,12 +1070,6 @@ def main():
 
     if args.override and args.backend == "ollama":
         provision_ollama(verbose=args.verbose)
-
-    if args.select_model and not args.model:
-        if sys.stdin.isatty():
-            args.model = prompt_model_selection()
-        else:
-            print("[warn] --select-model ignored (stdin is not a TTY)", file=sys.stderr)
 
     default_model = args.model or MODEL_TIERS["xl_quality"]
     backend       = Backend(args.backend, default_model)
