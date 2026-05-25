@@ -31,3 +31,10 @@ htmlcov/
 # Pipeline outputs (corpus-specific, never commit)
 _processed/
 diagrams/_raw_llm_output.txt
+
+# Local backups / fork snapshots (on-disk reference only)
+backups/
+fork_*/
+
+# Claude Code / IDE workspace
+.claude/
