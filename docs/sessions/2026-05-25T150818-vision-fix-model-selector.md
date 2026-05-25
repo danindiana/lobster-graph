@@ -101,9 +101,57 @@ python3 /home/jeb/programs/python_programs/paper_processor/pp.py --paper foo.pdf
 
 ---
 
+---
+
+## Part 4 — Code Model Selector (-c flag)
+
+### Feature
+
+Extended the interactive selector pattern to the C++ section model (`CODE_MODEL`).  
+Previously `--model` overrode both the main model AND the code model with no independent path.
+
+Changes:
+- `KNOWN_GOOD_CODE_MODELS` list added (6 code-specialist models)
+- `prompt_model_selection()` generalised to accept any model list
+- `--code-model MODEL` flag for direct non-interactive override
+- `--select-code-model` / `-c` flag for interactive picker
+- `Pipeline.__init__` gains `forced_code_model` param
+- Priority chain: `forced_code_model → forced_model → CODE_MODEL`
+- `pp.py` updated to show both pickers in sequence on launch
+
+**Commit:** `cd7dae7`
+
+### Verification (live run with pp.py)
+
+`./pp.py --paper 2407.13885v1.pdf --verbose /home/jeb/Documents`
+
+Selections made:
+- Main model: `devstral:24b`
+- Code model: `deepseek-coder-v2:16b`
+
+Process command confirmed:
+```
+paper_processor.py --model devstral:24b --code-model deepseek-coder-v2:16b ...
+```
+
+Monitor trace:
+```
+devstral:24b loaded    → sections 1, 2 written (summary, logic)
+devstral:24b unloaded  → deepseek-coder-v2:16b loaded for C++ section
+deepseek-coder-v2:16b  → section 3 written (C++ examples)
+devstral:24b reloaded  → section 4 (extras/diagrams) in progress
+```
+
+Model swap between main/code sections confirmed working correctly.
+
+---
+
 ## Commits This Session
 
 | Hash | Message |
 |------|---------|
 | `7916b11` | feat: interactive model selector (-s / --select-model) + fork snapshot |
 | `220cef7` | feat: add pp.py standalone model-picker launcher |
+| `cd7dae7` | feat: interactive code model selector (-c / --select-code-model) |
+| `275b9c3` | docs: add session log |
+| `5ff7025` | docs: add LESSONS_LEARNED.md |
