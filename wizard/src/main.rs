@@ -52,6 +52,35 @@ const OLLAMA_URL: &str = "http://localhost:11434";
 const TAB_TITLES: &[&str] = &["Overview", "Scan", "Config", "Run", "Help"];
 
 // ──────────────────────────────────────────────────────────────────────
+// Known-good model lists (mirrors paper_processor.py KNOWN_GOOD_* lists)
+// ──────────────────────────────────────────────────────────────────────
+struct ModelEntry {
+    name: &'static str,
+    vram: &'static str,
+    role: &'static str,
+}
+
+const KNOWN_GOOD_MODELS: &[ModelEntry] = &[
+    ModelEntry { name: "nemotron-3-nano-30b-small:latest",   vram: "~24 GB", role: "xl_quality — current default" },
+    ModelEntry { name: "deepseek-r1:32b",                    vram: "~19 GB", role: "xl_reason — chain-of-thought" },
+    ModelEntry { name: "deepseek-r1:14b-qwen-distill-q8_0", vram: "~15 GB", role: "mid_reason — Q8 fidelity" },
+    ModelEntry { name: "devstral:24b",                       vram: "~14 GB", role: "mid_code — code + text" },
+    ModelEntry { name: "qwen3.6:35b",                        vram: "~23 GB", role: "xl — strong general reasoning" },
+    ModelEntry { name: "deepseek-r1:14b",                    vram: "~9 GB",  role: "single — reliable, 9 GB" },
+    ModelEntry { name: "gpt-oss:20b",                        vram: "~13 GB", role: "text-only alternative" },
+    ModelEntry { name: "deepseek-r1:8b",                     vram: "~5 GB",  role: "fast — quick fallback" },
+];
+
+const KNOWN_GOOD_CODE_MODELS: &[ModelEntry] = &[
+    ModelEntry { name: "qwen3-coder:30b",              vram: "~18 GB", role: "xl_code — current default, best C++" },
+    ModelEntry { name: "devstral:24b",                 vram: "~14 GB", role: "mid_code — strong code, lower VRAM" },
+    ModelEntry { name: "qwen2.5-coder:14b-base-q6_K", vram: "~12 GB", role: "single — Q6 fidelity" },
+    ModelEntry { name: "qwen2.5-coder:14b",           vram: "~9 GB",  role: "single — reliable, single-GPU" },
+    ModelEntry { name: "deepseek-coder-v2:16b",       vram: "~9 GB",  role: "single — fast alternative" },
+    ModelEntry { name: "qwen2.5-coder:7b",            vram: "~5 GB",  role: "fast — quick fallback" },
+];
+
+// ──────────────────────────────────────────────────────────────────────
 // App state
 // ──────────────────────────────────────────────────────────────────────
 #[derive(Deserialize)]
@@ -95,23 +124,25 @@ impl Backend {
 }
 
 struct Config {
-    papers_dir: String,
-    backend: Backend,
-    model_override: String, // empty = auto-select
-    single_paper: String,   // empty = all
-    reprocess: String,      // empty | summary|logic|cpp|diagrams|extras|all
-    workers: u32,
+    papers_dir:          String,
+    backend:             Backend,
+    model_override:      String, // empty = auto-select by page count
+    code_model_override: String, // empty = use CODE_MODEL default (qwen3-coder:30b)
+    single_paper:        String, // empty = all
+    reprocess:           String, // empty | summary|logic|cpp|diagrams|extras|all
+    workers:             u32,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            papers_dir: DEFAULT_PAPERS_DIR.to_string(),
-            backend: Backend::Ollama,
-            model_override: String::new(),
-            single_paper: String::new(),
-            reprocess: String::new(),
-            workers: 1,
+            papers_dir:          DEFAULT_PAPERS_DIR.to_string(),
+            backend:             Backend::Ollama,
+            model_override:      String::new(),
+            code_model_override: String::new(),
+            single_paper:        String::new(),
+            reprocess:           String::new(),
+            workers:             1,
         }
     }
 }
@@ -121,6 +152,7 @@ enum ConfigField {
     PapersDir,
     Backend,
     Model,
+    CodeModel,
     Paper,
     Reprocess,
     Workers,
@@ -128,12 +160,13 @@ enum ConfigField {
 impl ConfigField {
     fn next(self) -> Self {
         match self {
-            ConfigField::PapersDir => ConfigField::Backend,
-            ConfigField::Backend => ConfigField::Model,
-            ConfigField::Model => ConfigField::Paper,
-            ConfigField::Paper => ConfigField::Reprocess,
-            ConfigField::Reprocess => ConfigField::Workers,
-            ConfigField::Workers => ConfigField::PapersDir,
+            ConfigField::PapersDir  => ConfigField::Backend,
+            ConfigField::Backend    => ConfigField::Model,
+            ConfigField::Model      => ConfigField::CodeModel,
+            ConfigField::CodeModel  => ConfigField::Paper,
+            ConfigField::Paper      => ConfigField::Reprocess,
+            ConfigField::Reprocess  => ConfigField::Workers,
+            ConfigField::Workers    => ConfigField::PapersDir,
         }
     }
 }
@@ -203,7 +236,10 @@ struct App {
     run: Arc<Mutex<RunState>>,
     health: Health,
     should_quit: bool,
-    show_help_overlay: bool,
+    show_help_overlay:  bool,
+    show_model_picker:  bool,
+    show_code_picker:   bool,
+    picker_idx:         usize,
     status_msg: String,
 }
 
@@ -223,6 +259,9 @@ impl App {
             health: Health::default(),
             should_quit: false,
             show_help_overlay: false,
+            show_model_picker: false,
+            show_code_picker:  false,
+            picker_idx:        0,
             status_msg: String::from("Welcome. Press ? for help, Tab to switch panels."),
         }
     }
@@ -370,6 +409,11 @@ fn handle_key(app: &mut App, k: KeyEvent) -> Result<()> {
         return Ok(());
     }
 
+    if app.show_model_picker || app.show_code_picker {
+        handle_picker_key(app, k);
+        return Ok(());
+    }
+
     // Global
     match (k.code, k.modifiers) {
         (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
@@ -451,22 +495,68 @@ fn handle_config_key(app: &mut App, k: KeyEvent) {
     match k.code {
         KeyCode::Down | KeyCode::Char('j') => app.field = app.field.next(),
         KeyCode::Up | KeyCode::Char('k') => {
-            // previous
+            // previous: cycle forward (n_fields - 1) times
             let mut f = app.field;
-            for _ in 0..5 {
+            for _ in 0..6 {
                 f = f.next();
             }
             app.field = f;
         }
         KeyCode::Left | KeyCode::Right => cycle_field_value(app, k.code == KeyCode::Right),
         KeyCode::Backspace => pop_field_char(app),
+        KeyCode::Char('i') => {
+            if app.field == ConfigField::Model {
+                app.show_model_picker = true;
+                app.picker_idx = 0;
+                app.status_msg = "Model picker — ↑/↓ navigate · Enter select · Esc cancel".into();
+            } else if app.field == ConfigField::CodeModel {
+                app.show_code_picker = true;
+                app.picker_idx = 0;
+                app.status_msg = "Code model picker — ↑/↓ navigate · Enter select · Esc cancel".into();
+            } else {
+                push_field_char(app, 'i');
+            }
+        }
         KeyCode::Char(c) => {
-            // Don't capture 's' on config tab — fall through to text
             push_field_char(app, c);
         }
         KeyCode::Enter => {
             app.tab = 3;
             app.status_msg = "Switched to Run tab. Press L to launch.".into();
+        }
+        _ => {}
+    }
+}
+
+fn handle_picker_key(app: &mut App, k: KeyEvent) {
+    let list: &[ModelEntry] = if app.show_model_picker {
+        KNOWN_GOOD_MODELS
+    } else {
+        KNOWN_GOOD_CODE_MODELS
+    };
+    match k.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.picker_idx = app.picker_idx.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.picker_idx = (app.picker_idx + 1).min(list.len().saturating_sub(1));
+        }
+        KeyCode::Enter => {
+            let chosen = list[app.picker_idx].name.to_string();
+            if app.show_model_picker {
+                app.cfg.model_override = chosen;
+                app.status_msg = format!("Main model set to {}", app.cfg.model_override);
+            } else {
+                app.cfg.code_model_override = chosen;
+                app.status_msg = format!("Code model set to {}", app.cfg.code_model_override);
+            }
+            app.show_model_picker = false;
+            app.show_code_picker  = false;
+        }
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.show_model_picker = false;
+            app.show_code_picker  = false;
+            app.status_msg = "Picker dismissed.".into();
         }
         _ => {}
     }
@@ -507,9 +597,10 @@ fn cycle_field_value(app: &mut App, forward: bool) {
 
 fn push_field_char(app: &mut App, c: char) {
     let target: Option<&mut String> = match app.field {
-        ConfigField::PapersDir => Some(&mut app.cfg.papers_dir),
-        ConfigField::Model => Some(&mut app.cfg.model_override),
-        ConfigField::Paper => Some(&mut app.cfg.single_paper),
+        ConfigField::PapersDir  => Some(&mut app.cfg.papers_dir),
+        ConfigField::Model      => Some(&mut app.cfg.model_override),
+        ConfigField::CodeModel  => Some(&mut app.cfg.code_model_override),
+        ConfigField::Paper      => Some(&mut app.cfg.single_paper),
         _ => None,
     };
     if let Some(s) = target {
@@ -519,9 +610,10 @@ fn push_field_char(app: &mut App, c: char) {
 
 fn pop_field_char(app: &mut App) {
     let target: Option<&mut String> = match app.field {
-        ConfigField::PapersDir => Some(&mut app.cfg.papers_dir),
-        ConfigField::Model => Some(&mut app.cfg.model_override),
-        ConfigField::Paper => Some(&mut app.cfg.single_paper),
+        ConfigField::PapersDir  => Some(&mut app.cfg.papers_dir),
+        ConfigField::Model      => Some(&mut app.cfg.model_override),
+        ConfigField::CodeModel  => Some(&mut app.cfg.code_model_override),
+        ConfigField::Paper      => Some(&mut app.cfg.single_paper),
         _ => None,
     };
     if let Some(s) = target {
@@ -716,6 +808,9 @@ fn launch_processor(app: &mut App) {
     if !app.cfg.model_override.trim().is_empty() {
         cmd.arg("--model").arg(app.cfg.model_override.trim());
     }
+    if !app.cfg.code_model_override.trim().is_empty() {
+        cmd.arg("--code-model").arg(app.cfg.code_model_override.trim());
+    }
     if !app.cfg.single_paper.trim().is_empty() {
         cmd.arg("--paper").arg(app.cfg.single_paper.trim());
     }
@@ -890,6 +985,9 @@ fn draw(f: &mut Frame, app: &App) {
     if app.show_help_overlay {
         draw_help_overlay(f, size);
     }
+    if app.show_model_picker || app.show_code_picker {
+        draw_model_picker(f, app, size);
+    }
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
@@ -968,13 +1066,14 @@ fn draw_overview(f: &mut Frame, app: &App, area: Rect) {
         )),
         Line::from("  ≤  8 pp  →  deepseek-r1:8b          (~5 GB)"),
         Line::from("  ≤ 18 pp  →  deepseek-r1:14b         (~9 GB)"),
-        Line::from("  > 18 pp  →  gemma4:31b-it-q4_K_M    (~18 GB dual-GPU)"),
+        Line::from("  > 18 pp  →  nemotron-3-nano-30b-small (~24 GB dual-GPU)"),
         Line::from("  C++ stage →  qwen3-coder:30b        (~17 GB dual-GPU)"),
         Line::from(""),
         Line::from(Span::styled(
             "Workflow:",
             Style::default().fg(NEON_MAGENTA),
         )),
+        Line::from("  0. Run ./pp.py for interactive model selection before launch."),
         Line::from("  1. Press Tab → Scan, then S to index your corpus."),
         Line::from("  2. Tab → Config to set options (or pick Enter on a"),
         Line::from("     scan row to queue a single paper)."),
@@ -1152,6 +1251,7 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
         ConfigField::PapersDir,
         ConfigField::Backend,
         ConfigField::Model,
+        ConfigField::CodeModel,
         ConfigField::Paper,
         ConfigField::Reprocess,
         ConfigField::Workers,
@@ -1160,6 +1260,7 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
         "papers_dir",
         "--backend",
         "--model",
+        "--code-model",
         "--paper",
         "--reprocess",
         "--workers",
@@ -1172,6 +1273,11 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
             "(auto-select)".to_string()
         } else {
             app.cfg.model_override.clone()
+        },
+        if app.cfg.code_model_override.is_empty() {
+            "(qwen3-coder:30b)".to_string()
+        } else {
+            app.cfg.code_model_override.clone()
         },
         if app.cfg.single_paper.is_empty() {
             "(all papers)".to_string()
@@ -1188,7 +1294,8 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
     let hints = [
         "text: type to edit",
         "←/→: toggle ollama ↔ openclaw",
-        "text: e.g. deepseek-r1:14b",
+        "text: type model name  or  [i] interactive picker",
+        "text: type model name  or  [i] interactive picker (C++ sections)",
         "text: basename or relative path",
         "←/→: cycle off|summary|logic|cpp|diagrams|extras|all",
         "←/→: 1 – 8  (⚠ OOM if >1 with 30B models)",
@@ -1426,6 +1533,61 @@ fn kv(k: &str, v: &str) -> Line<'static> {
     ])
 }
 
+fn draw_model_picker(f: &mut Frame, app: &App, area: Rect) {
+    let list: &[ModelEntry] = if app.show_model_picker {
+        KNOWN_GOOD_MODELS
+    } else {
+        KNOWN_GOOD_CODE_MODELS
+    };
+    let title = if app.show_model_picker {
+        " Main Model Picker "
+    } else {
+        " C++ / Code Model Picker "
+    };
+
+    let h = (list.len() as u16) + 6;
+    let w = 90.min(area.width.saturating_sub(4));
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let r = Rect::new(x, y, w, h);
+    f.render_widget(Clear, r);
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            "  ↑/↓ or j/k navigate · Enter select · Esc cancel",
+            Style::default().fg(DIM_GREY),
+        )),
+        Line::from(""),
+    ];
+
+    for (i, m) in list.iter().enumerate() {
+        let selected = i == app.picker_idx;
+        let marker = if selected { "▶ " } else { "  " };
+        let style = if selected {
+            Style::default()
+                .fg(NEON_YELLOW)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        lines.push(Line::from(Span::styled(
+            format!(
+                "{}  {:2}  {:<43}  {:<8}  {}",
+                marker,
+                i + 1,
+                m.name,
+                m.vram,
+                m.role
+            ),
+            style,
+        )));
+    }
+
+    let p = Paragraph::new(lines)
+        .block(fancy_block(title, NEON_MAGENTA));
+    f.render_widget(p, r);
+}
+
 fn draw_help_overlay(f: &mut Frame, area: Rect) {
     let w = 60.min(area.width.saturating_sub(4));
     let h = 14.min(area.height.saturating_sub(4));
@@ -1443,6 +1605,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         kv("  q              ", "quit"),
         kv("  F5             ", "re-probe environment"),
         kv("  s              ", "scan (Scan panel)"),
+        kv("  i              ", "interactive model picker (Config → --model / --code-model)"),
         kv("  L              ", "launch (Run panel)"),
         kv("  X              ", "kill (Run panel)"),
         Line::from(""),
