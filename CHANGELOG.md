@@ -9,6 +9,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.5.0] — 2026-05-25
+
+### Added
+- `pp.py` standalone launcher: shows model pickers for both main and C++ models in
+  sequence, then `os.execv`s into `paper_processor.py`. Works from any directory.
+- Interactive main model selector (`-s` / `--select-model`): numbered menu of
+  `KNOWN_GOOD_MODELS` at startup; TTY-guarded so batch runs are unaffected.
+- Interactive code model selector (`-c` / `--select-code-model`): independent picker
+  for the C++ section model (`KNOWN_GOOD_CODE_MODELS`); `--code-model` for direct override.
+- `LESSONS_LEARNED.md`: running log of non-obvious findings and design decisions.
+- Session docs under `docs/sessions/`.
+
+### Changed
+- `xl_quality` default model: `gemma4:31b-it-q4_K_M` (multimodal, vision unused) →
+  `nemotron-3-nano-30b-small:latest` (text-only SSM/attention hybrid, reclaims ~6 GB VRAM).
+- `prompt_model_selection()` generalised to accept any model list; reused for both pickers.
+- `Pipeline.__init__` gains `forced_code_model` param; priority chain:
+  `forced_code_model → forced_model → CODE_MODEL`.
+
+### Fixed
+- `.gitignore`: added `backups/`, `fork_*/`, `.claude/` patterns.
+
+---
+
 ## [0.4.0] — 2026-05-23
 
 ### Added
