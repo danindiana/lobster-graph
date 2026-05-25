@@ -166,15 +166,22 @@ bash setup_paper_processor.sh
 # Pull the models you want (see table above)
 ollama pull deepseek-r1:8b
 ollama pull deepseek-r1:14b
-ollama pull gemma4:31b-it-q4_K_M
+ollama pull nemotron-3-nano-30b-small
 ollama pull qwen3-coder:30b
 
-# Run headless on a directory of PDFs (recursive)
+# Recommended: interactive launcher — pick main + C++ models from a menu, then run
+./pp.py ~/my_papers --paper "attention.pdf"
+
+# Headless on a directory of PDFs (auto-selects model by page count)
 python paper_processor.py ~/my_papers
 
-# Single paper, forced small model
+# Single paper with interactive model selection
+python paper_processor.py ~/my_papers --paper "attention.pdf" -s -c
+
+# Single paper, forced models (non-interactive)
 python paper_processor.py ~/my_papers --paper "attention.pdf" \
-                                       --model deepseek-r1:14b
+                                       --model devstral:24b \
+                                       --code-model qwen2.5-coder:14b
 
 # Re-run just the diagram stage
 python paper_processor.py ~/my_papers --reprocess diagrams
@@ -214,15 +221,23 @@ See [`wizard/README.md`](wizard/README.md) for full keybindings.
 ## CLI flags
 
 ```
+./pp.py [flags]                   recommended entry point — shows model pickers first
+
 python paper_processor.py [papers_dir]
     --backend {ollama,openclaw}   default ollama
     --model MODEL                 force one model for every stage
+    --code-model MODEL            force model for C++ sections only
+    -s / --select-model           interactive menu: pick main model before processing
+    -c / --select-code-model      interactive menu: pick C++ section model before processing
     --paper FILENAME              single paper (basename or rel path)
     --reprocess SECTION           summary|logic|cpp|diagrams|extras|all
     --workers N                   parallel papers (⚠ VRAM)
     --list                        show status table, exit
     --override                    evict loaded Ollama models; restart service if stuck
+    -v / --verbose                extra debug output
 ```
+
+See [`LESSONS_LEARNED.md`](LESSONS_LEARNED.md) for operational notes and gotchas.
 
 ## Design notes
 
