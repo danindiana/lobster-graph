@@ -1534,58 +1534,51 @@ fn kv(k: &str, v: &str) -> Line<'static> {
 }
 
 fn draw_model_picker(f: &mut Frame, app: &App, area: Rect) {
-    let list: &[ModelEntry] = if app.show_model_picker {
+    let list_data: &[ModelEntry] = if app.show_model_picker {
         KNOWN_GOOD_MODELS
     } else {
         KNOWN_GOOD_CODE_MODELS
     };
     let title = if app.show_model_picker {
-        " Main Model Picker "
+        " Main Model — ↑/↓ · Enter select · Esc cancel "
     } else {
-        " C++ / Code Model Picker "
+        " C++ / Code Model — ↑/↓ · Enter select · Esc cancel "
     };
 
-    let h = (list.len() as u16) + 6;
-    let w = 90.min(area.width.saturating_sub(4));
+    let h = (list_data.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let w = 100.min(area.width.saturating_sub(4));
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let r = Rect::new(x, y, w, h);
     f.render_widget(Clear, r);
 
-    let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled(
-            "  ↑/↓ or j/k navigate · Enter select · Esc cancel",
-            Style::default().fg(DIM_GREY),
-        )),
-        Line::from(""),
-    ];
+    let items: Vec<ListItem> = list_data
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            ListItem::new(Line::from(vec![
+                Span::raw(format!("  {:2}  ", i + 1)),
+                Span::styled(format!("{:<36}", m.name), Style::default().fg(NEON_CYAN)),
+                Span::raw("  "),
+                Span::styled(format!("{:<8}", m.vram), Style::default().fg(NEON_GREEN)),
+                Span::raw("  "),
+                Span::styled(m.role, Style::default().fg(DIM_GREY)),
+            ]))
+        })
+        .collect();
 
-    for (i, m) in list.iter().enumerate() {
-        let selected = i == app.picker_idx;
-        let marker = if selected { "▶ " } else { "  " };
-        let style = if selected {
+    let list = List::new(items)
+        .block(fancy_block(title, NEON_MAGENTA))
+        .highlight_style(
             Style::default()
                 .fg(NEON_YELLOW)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-        lines.push(Line::from(Span::styled(
-            format!(
-                "{}  {:2}  {:<43}  {:<8}  {}",
-                marker,
-                i + 1,
-                m.name,
-                m.vram,
-                m.role
-            ),
-            style,
-        )));
-    }
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
 
-    let p = Paragraph::new(lines)
-        .block(fancy_block(title, NEON_MAGENTA));
-    f.render_widget(p, r);
+    let mut state = ListState::default();
+    state.select(Some(app.picker_idx));
+    f.render_stateful_widget(list, r, &mut state);
 }
 
 fn draw_help_overlay(f: &mut Frame, area: Rect) {
