@@ -122,6 +122,16 @@ KNOWN_GOOD_MODELS: List[tuple] = [
     ("deepseek-r1:8b",                     "~5 GB",  "fast — quick fallback",           False),
 ]
 
+# Curated code-specialist models for the C++ section selector (-c flag).
+KNOWN_GOOD_CODE_MODELS: List[tuple] = [
+    ("qwen3-coder:30b",              "~18 GB", "xl_code — current default, best C++",  True),
+    ("devstral:24b",                 "~14 GB", "mid_code — strong code, lower VRAM",   False),
+    ("qwen2.5-coder:14b-base-q6_K", "~12 GB", "single — Q6 fidelity",                False),
+    ("qwen2.5-coder:14b",           "~9 GB",  "single — reliable, single-GPU",        False),
+    ("deepseek-coder-v2:16b",       "~9 GB",  "single — fast alternative",            False),
+    ("qwen2.5-coder:7b",            "~5 GB",  "fast — quick fallback",                False),
+]
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OLLAMA GPU PROVISIONER  (--override mode)
@@ -532,29 +542,31 @@ def select_model(page_count: int, user_override: Optional[str]) -> str:
     return MODEL_TIERS["xl_quality"]
 
 
-def prompt_model_selection() -> str:
+def prompt_model_selection(models: List[tuple] = None) -> str:
     """Numbered menu of known-good models. Returns the chosen model string."""
+    if models is None:
+        models = KNOWN_GOOD_MODELS
     print("\n  Known-good models — select for this run:")
     print(f"  {'#':<4} {'Model':<47} {'VRAM':<9} Role")
     print(f"  {'─'*80}")
-    for i, (name, vram, role, is_default) in enumerate(KNOWN_GOOD_MODELS, 1):
+    for i, (name, vram, role, is_default) in enumerate(models, 1):
         marker = "  ◀" if is_default else ""
         print(f"  {i:<4} {name:<47} {vram:<9} {role}{marker}")
     print()
     default_idx = next(
-        i for i, (_, _, _, d) in enumerate(KNOWN_GOOD_MODELS, 1) if d
+        i for i, (_, _, _, d) in enumerate(models, 1) if d
     )
     while True:
         try:
             raw = input(f"  Enter number [{default_idx}]: ").strip()
             idx = int(raw) if raw else default_idx
-            if 1 <= idx <= len(KNOWN_GOOD_MODELS):
-                chosen = KNOWN_GOOD_MODELS[idx - 1][0]
+            if 1 <= idx <= len(models):
+                chosen = models[idx - 1][0]
                 print(f"  → {chosen}\n")
                 return chosen
         except (ValueError, EOFError):
             pass
-        print(f"  Please enter 1–{len(KNOWN_GOOD_MODELS)}")
+        print(f"  Please enter 1–{len(models)}")
 
 
 def build_chunks(pages: List[str], window: int = 12, overlap: int = 2) -> List[str]:
@@ -671,13 +683,15 @@ class PaperProcessor:
         papers_dir: Path,
         backend: Backend,
         forced_model: Optional[str] = None,
+        forced_code_model: Optional[str] = None,
         reprocess: Optional[str] = None,
         verbose: bool = False,
     ):
-        self.papers_dir   = papers_dir
-        self.out_root     = papers_dir / "_processed"
-        self.backend      = backend
-        self.forced_model = forced_model
+        self.papers_dir        = papers_dir
+        self.out_root          = papers_dir / "_processed"
+        self.backend           = backend
+        self.forced_model      = forced_model
+        self.forced_code_model = forced_code_model
         self.reprocess    = reprocess  # section name or "all"
         self.verbose      = verbose
         self.out_root.mkdir(exist_ok=True)
@@ -757,7 +771,7 @@ class PaperProcessor:
         pages      = extract_pages(pdf_path)
         page_count = len(pages)
         model      = select_model(page_count, self.forced_model)
-        code_model = self.forced_model or CODE_MODEL
+        code_model = self.forced_code_model or self.forced_model or CODE_MODEL
 
         chunks     = build_chunks(pages)
         strategy   = (
@@ -1079,6 +1093,14 @@ def main():
         "--select-model", "-s", action="store_true",
         help="Interactively choose the model before processing (overrides auto-selection by page count)",
     )
+    ap.add_argument(
+        "--code-model", default=None, metavar="MODEL",
+        help="Force a specific model for C++ sections only (overrides CODE_MODEL default)",
+    )
+    ap.add_argument(
+        "--select-code-model", "-c", action="store_true",
+        help="Interactively choose the C++ section model before processing",
+    )
     args = ap.parse_args()
 
     if args.workers < 1:
@@ -1121,6 +1143,13 @@ def main():
         else:
             print("[warn] --select-model ignored (stdin is not a TTY)", file=sys.stderr)
 
+    if args.select_code_model and not args.code_model:
+        if sys.stdin.isatty():
+            print("  C++ / code section model:")
+            args.code_model = prompt_model_selection(KNOWN_GOOD_CODE_MODELS)
+        else:
+            print("[warn] --select-code-model ignored (stdin is not a TTY)", file=sys.stderr)
+
     default_model = args.model or MODEL_TIERS["xl_quality"]
     backend       = Backend(args.backend, default_model)
 
@@ -1159,8 +1188,9 @@ def main():
     processor = PaperProcessor(
         papers_dir   = papers_dir,
         backend      = backend,
-        forced_model = args.model,
-        reprocess    = args.reprocess,
+        forced_model      = args.model,
+        forced_code_model = args.code_model,
+        reprocess         = args.reprocess,
         verbose      = args.verbose,
     )
 
