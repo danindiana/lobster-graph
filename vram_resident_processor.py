@@ -53,6 +53,7 @@ except ImportError:
 # GRACEFUL SHUTDOWN
 # ══════════════════════════════════════════════════════════════════════════════
 _shutdown = threading.Event()
+_sync_lock = threading.Lock()
 
 
 def _install_signal_handlers() -> None:
@@ -1046,6 +1047,8 @@ def health_check_openclaw():
 
 def _sync_to_neo4j():
     """Checks if Neo4j is listening on Port 7687 and runs the importer script to auto-sync."""
+    if not _sync_lock.acquire(blocking=False):
+        return
     try:
         import socket
         import subprocess
@@ -1061,6 +1064,26 @@ def _sync_to_neo4j():
                 print("  ✅ Neo4j database sync complete!")
     except Exception:
         pass
+    finally:
+        _sync_lock.release()
+
+
+def _periodic_sync_worker(interval: int = 300):
+    """Background thread worker to periodically trigger database synchronization."""
+    # Sleep 15 seconds initially to let the first paper get some processing headstart
+    for _ in range(15):
+        if _shutdown.is_set():
+            return
+        time.sleep(1)
+        
+    while not _shutdown.is_set():
+        _sync_to_neo4j()
+        
+        # Non-blocking sleep responsive to shutdown event
+        for _ in range(interval):
+            if _shutdown.is_set():
+                break
+            time.sleep(1)
 
 
 def main():
@@ -1278,6 +1301,14 @@ def main():
         reprocess         = args.reprocess,
         verbose           = args.verbose,
     )
+
+    # ── Spawn periodic database sync background thread ───────────────────────
+    sync_thread = threading.Thread(
+        target=_periodic_sync_worker,
+        args=(300,),  # sync every 5 minutes / 300 seconds
+        daemon=True
+    )
+    sync_thread.start()
 
     # ── Process ────────────────────────────────────────────────────────────
     errors: List[str] = []
