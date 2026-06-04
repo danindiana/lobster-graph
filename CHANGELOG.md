@@ -5,7 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [0.6.0] — 2026-06-04
+
+### Added
+- **Dark/Light Mode Toggle**: Added a seamless theme toggle to the graph dashboard, dynamically re-rendering node/edge colors and UI panels without requiring a page reload.
+- **Automated Graph Synchronization**: Integrated a 5-minute periodic background worker in `vram_resident_processor.py` to seamlessly sync newly processed papers into Neo4j.
+- **Repository Migration**: Promoted the graph processing visualization into a dedicated standalone repository (`danindiana/lobster-graph`) with comprehensive documentation and badges.
+
+### Fixed
+- **Canvas CSS Variable Resolution**: Replaced CSS variables (`var(--color-concept)`) with hardcoded Hex values in `vis-network` configurations. This fixed a silent failure where the HTML5 Canvas could not parse CSS variables, resulting in broken/default node colors.
+- **Background Sync Database Drop**: Replaced a full database wipe (`MATCH (n) DETACH DELETE n`) with idempotent `MERGE` queries in `neo4j_importer.py`. This fixed a critical issue where the dashboard would randomly go blank while the background sync was reconstructing the graph.
+- **Graphviz SVG Visibility**: Added a CSS `invert(1) hue-rotate(180deg)` filter to embedded `.dot` SVG diagrams to make black text readable on dark mode backgrounds, while correctly disabling the filter in light mode.
+- **Auto-Connect Modal**: Modified the connection overlay to automatically initialize the dashboard connection by default, preventing users from landing on a static connection screen.
 
 ---
 

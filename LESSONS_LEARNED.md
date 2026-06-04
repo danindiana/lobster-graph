@@ -5,6 +5,22 @@ remembering. Most recent entries first.
 
 ---
 
+## 2026-06-04 — HTML5 Canvas Engine Cannot Resolve CSS Variables
+
+**What happened:** We attempted to dynamically style `vis-network` graph nodes by passing CSS variables (`var(--color-concept)`) within the Javascript configuration object.
+**Root cause:** `vis-network` uses an HTML5 `<canvas>` to render nodes. When it tries to set `ctx.strokeStyle = "var(--color-concept)"`, the canvas engine fails because it operates independently from the DOM's stylesheet and has no mechanism to resolve CSS variables. It silently fails and defaults to a fallback color (black), completely breaking the visualizer's color tiering.
+**Fix:** Passed exact Hex color codes (e.g. `#d500f9`) directly into the `vis-network` configuration. For dynamic switching (like Dark/Light mode), we implemented a toggle function that iterates over the dataset and updates the colors via Javascript rather than relying on CSS overrides.
+
+---
+
+## 2026-06-04 — Idempotent Updates for Background Synchronization 
+
+**What happened:** The web visualization dashboard would occasionally go completely blank and fail to render anything when users reloaded it.
+**Root cause:** We set up a background thread to continually ingest new PDFs into Neo4j every 5 minutes. The script started with `session.run("MATCH (n) DETACH DELETE n")` to clear the old graph state before rebuilding. If a user accessed the page during the brief seconds it took to reconstruct the graph, they hit an empty database.
+**Fix:** Removed the `DELETE` query entirely. Migrated all `CREATE (p:Paper...)` queries to use `MERGE (p:Paper...) SET p += {...}`. This makes the script strictly idempotent, continuously augmenting the existing database without dropping it, resulting in a flawless experience for active dashboard users.
+
+---
+
 ## 2026-05-25 — Ratatui: `Paragraph` Silently Drops Wide Lines — Use `List` for Selectable Rows
 
 **What happened:** `draw_model_picker` in `wizard/src/main.rs` rendered the popup border
