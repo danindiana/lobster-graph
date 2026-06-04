@@ -1496,6 +1496,7 @@ fn draw_help(f: &mut Frame, _app: &App, area: Rect) {
         kv("   ↑/↓ · j/k      ", "next/prev field"),
         kv("   ←/→            ", "cycle value (backend · reprocess · workers)"),
         kv("   type / Backspace", "edit text fields"),
+        kv("   i              ", "interactive model picker (--model / --code-model fields)"),
         kv("   Enter          ", "jump to Run"),
         Line::from(""),
         Line::from(" Run panel"),
