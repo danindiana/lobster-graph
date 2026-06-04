@@ -128,10 +128,9 @@ def main():
         print(f"❌ Failed to connect to Neo4j: {e}")
         return
 
-    # Clear database
-    print("🧹 Cleaning existing database graph...")
-    with driver.session() as session:
-        session.run("MATCH (n) DETACH DELETE n")
+    # Remove the full database drop so background syncs don't cause sudden disconnects/blank screens
+    print("🔄 Ensuring database graph is ready...")
+
 
     if not PROCESSED_DIR.exists():
         print(f"❌ Processed directory does not exist: {PROCESSED_DIR}")
@@ -191,8 +190,8 @@ def main():
         # Create Paper Node
         with driver.session() as session:
             session.run("""
-                CREATE (p:Paper {
-                    name: $name,
+                MERGE (p:Paper {name: $name})
+                SET p += {
                     pdf_path: $pdf_path,
                     page_count: $page_count,
                     chunk_strategy: $chunk_strategy,
@@ -204,7 +203,7 @@ def main():
                     limitations: $limitations,
                     significance: $significance,
                     extras: $extras
-                })
+                }
             """, {
                 "name": paper_name,
                 "pdf_path": pdf_path,
@@ -247,8 +246,9 @@ def main():
                     for t in theorems:
                         session.run("""
                             MATCH (p:Paper {name: $paper_name})
-                            CREATE (t:Theorem {name: $name, statement: $statement})
-                            CREATE (p)-[:PROPOSES]->(t)
+                            MERGE (t:Theorem {name: $name})
+                            SET t.statement = $statement
+                            MERGE (p)-[:PROPOSES]->(t)
                         """, {"paper_name": paper_name, "name": t["name"], "statement": t["statement"]})
                 print(f"  📐 Imported {len(theorems)} Theorems")
 
@@ -259,8 +259,9 @@ def main():
                     for a in algs:
                         session.run("""
                             MATCH (p:Paper {name: $paper_name})
-                            CREATE (alg:Algorithm {name: $name, pseudocode: $code, invariant: $invariant})
-                            CREATE (p)-[:FORMALISES]->(alg)
+                            MERGE (alg:Algorithm {name: $name})
+                            SET alg.pseudocode = $code, alg.invariant = $invariant
+                            MERGE (p)-[:FORMALISES]->(alg)
                         """, {"paper_name": paper_name, "name": a["name"], "code": a["pseudocode"], "invariant": a["invariant"]})
                 print(f"  🤖 Imported {len(algs)} Algorithms")
 
@@ -273,8 +274,9 @@ def main():
                 for c in cpp_examples:
                     session.run("""
                         MATCH (p:Paper {name: $paper_name})
-                        CREATE (code:CodeSnippet {title: $title, language: 'cpp', code: $code})
-                        CREATE (p)-[:PROVIDES_CODE]->(code)
+                        MERGE (code:CodeSnippet {title: $title})
+                        SET code.language = 'cpp', code.code = $code
+                        MERGE (p)-[:PROVIDES_CODE]->(code)
                     """, {"paper_name": paper_name, "title": c["title"], "code": c["code"]})
             print(f"  💻 Imported {len(cpp_examples)} C++ Examples")
 
@@ -292,8 +294,9 @@ def main():
                     
                     session.run("""
                         MATCH (p:Paper {name: $paper_name})
-                        CREATE (d:Diagram {title: $title, dot_src: $dot, svg_path: $svg})
-                        CREATE (p)-[:HAS_DIAGRAM]->(d)
+                        MERGE (d:Diagram {title: $title})
+                        SET d.dot_src = $dot, d.svg_path = $svg
+                        MERGE (p)-[:HAS_DIAGRAM]->(d)
                     """, {"paper_name": paper_name, "title": title, "dot": dot_src, "svg": rel_svg})
             print(f"  📊 Imported {len(dot_files)} DOT/SVG Diagrams")
 

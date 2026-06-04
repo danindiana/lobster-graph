@@ -965,11 +965,8 @@
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
     }
-    // Auto-connect if query param ?connect=1 is present
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('connect') === '1') {
-      setTimeout(connectAndInitialize, 100);
-    }
+    // Auto-connect by default so the dashboard displays seamlessly on LAN
+    setTimeout(connectAndInitialize, 300);
   </script>
 </body>
 </html>
