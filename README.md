@@ -1,7 +1,7 @@
-# paper-processor
+# Lobster Graph
 
 <p align="center">
-  <img src="docs/logo.png" alt="paper-processor logo" width="600">
+  <img src="docs/logo.png" alt="Lobster Graph logo" width="600">
 </p>
 
 A local-first pipeline designed to process a corpus of AI/ML research paper PDFs into structured, high-fidelity study dossiers. It performs text extraction, map-reduce summarization, symbolic logic refactoring,現代 C++ implementation generation, Graphviz diagram parsing, and critical analysis.
