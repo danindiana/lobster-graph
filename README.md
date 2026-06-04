@@ -4,6 +4,14 @@
   <img src="docs/logo.png" alt="Lobster Graph logo" width="600">
 </p>
 
+<p align="center">
+  <a href="https://github.com/danindiana/lobster-graph/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square" alt="Build Status"></a>
+  <a href="https://python.org"><img src="https://img.shields.io/badge/python-3.10+-blue.svg?style=flat-square" alt="Python Version"></a>
+  <a href="https://ollama.com"><img src="https://img.shields.io/badge/ollama-resident-orange.svg?style=flat-square" alt="Ollama Resident"></a>
+  <a href="https://neo4j.com"><img src="https://img.shields.io/badge/neo4j-graph-blue.svg?style=flat-square" alt="Neo4j Graph"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License"></a>
+</p>
+
 A local-first pipeline designed to process a corpus of AI/ML research paper PDFs into structured, high-fidelity study dossiers. It performs text extraction, map-reduce summarization, symbolic logic refactoring,現代 C++ implementation generation, Graphviz diagram parsing, and critical analysis.
 
 This repository includes a specialized **VRAM Concurrent Resident Fork** and a split-instance launcher designed to achieve **Zero-Swap Concurrency** on multi-GPU setups.
