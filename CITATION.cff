@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it as below."
+authors:
+  - family-names: "Indiana"
+    given-names: "Dan"
+title: "Lobster Graph: AI/ML Paper Processing Pipeline"
+version: 1.0.0
+date-released: 2026-06-04
+url: "https://github.com/danindiana/lobster-graph"
+repository-code: "https://github.com/danindiana/lobster-graph"
+description: "A local-first pipeline designed to process a corpus of AI/ML research paper PDFs into structured, high-fidelity study dossiers."
+keywords:
+  - machine learning
+  - artificial intelligence
+  - pdf parsing
+  - nlp
+  - neo4j
+  - ollama
+  - graph database
+license: MIT
