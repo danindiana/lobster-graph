@@ -973,20 +973,20 @@ def list_status(papers_dir: Path):
     print()
 
 
-def health_check_ollama():
+def health_check_ollama(url: str = PRIMARY_OLLAMA_URL, label: str = "Primary"):
     try:
-        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        r = requests.get(f"{url}/api/tags", timeout=5)
         r.raise_for_status()
         models = [m["name"] for m in r.json().get("models", [])]
-        print(f"  🟢  Ollama reachable at {OLLAMA_URL}")
+        print(f"  🟢  Ollama ({label}) reachable at {url}")
         print(f"       {len(models)} models available")
         return True
     except Exception as exc:
-        print(f"  ❌  Cannot reach Ollama at {OLLAMA_URL}: {exc}")
+        print(f"  ❌  Cannot reach Ollama ({label}) at {url}: {exc}")
         return False
 
 
-def check_required_models(models: List[str]) -> None:
+def check_required_models(models: List[str], url: str = PRIMARY_OLLAMA_URL) -> None:
     """Exit with pull instructions if any model is absent from Ollama's local library.
 
     Prevents auto-download hangs: missing models trigger a silent pull on first
@@ -994,7 +994,7 @@ def check_required_models(models: List[str]) -> None:
     subsequent papers (OLLAMA_NUM_PARALLEL=1 queues them behind the stuck request).
     """
     try:
-        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
+        r = requests.get(f"{url}/api/tags", timeout=10)
         r.raise_for_status()
         available = {m["name"] for m in r.json().get("models", [])}
     except Exception:
@@ -1002,7 +1002,7 @@ def check_required_models(models: List[str]) -> None:
     missing = [m for m in models if m not in available]
     if missing:
         sys.exit(
-            "❌  Required models not found locally — pull them first to avoid "
+            f"❌  Required models not found locally at {url} — pull them first to avoid "
             "auto-download timeouts:\n"
             + "\n".join(f"    ollama pull {m}" for m in missing)
         )
