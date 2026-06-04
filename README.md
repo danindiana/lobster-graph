@@ -7,6 +7,9 @@
 <p align="center">
   <a href="https://github.com/danindiana/lobster-graph/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square" alt="Build Status"></a>
   <a href="https://python.org"><img src="https://img.shields.io/badge/python-3.10+-blue.svg?style=flat-square" alt="Python Version"></a>
+  <a href="https://ubuntu.com"><img src="https://img.shields.io/badge/OS-Ubuntu_Linux-E95420.svg?style=flat-square&logo=ubuntu" alt="Ubuntu"></a>
+  <a href="https://nvidia.com"><img src="https://img.shields.io/badge/GPU-RTX_5080_|_3080-76B900.svg?style=flat-square&logo=nvidia" alt="NVIDIA GPUs"></a>
+  <a href="#vram-residency--swap-optimization"><img src="https://img.shields.io/badge/VRAM-Zero--Swap_Concurrency-9cf.svg?style=flat-square" alt="Zero-Swap Concurrency"></a>
   <a href="https://ollama.com"><img src="https://img.shields.io/badge/ollama-resident-orange.svg?style=flat-square" alt="Ollama Resident"></a>
   <a href="https://neo4j.com"><img src="https://img.shields.io/badge/neo4j-graph-blue.svg?style=flat-square" alt="Neo4j Graph"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License"></a>
