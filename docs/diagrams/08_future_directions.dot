@@ -1,0 +1,16 @@
+digraph G {
+  graph [bgcolor="black" fontcolor="#00FFFF" fontname="Courier New" fontsize=12 label="ROADMAP & FUTURE OPTIMIZATIONS" labelloc=t];
+  node  [style=filled fillcolor="#0a0a0a" color="#00FF41" fontcolor="#00FF41" fontname="Courier New" fontsize=10];
+  edge  [color="#FF00FF" penwidth=2.0 fontname="Courier New" fontsize=9 fontcolor="#DA70FF"];
+
+  // Nodes
+  opt0 [label="1. In-Pipeline Telemetry\nLog core usage directly\ninto metadata.json" color="#00FFFF" fontcolor="#00FFFF"];
+  opt1 [label="2. Eviction Prevention\nPre-run warm-up API calls\nbefore pymupdf parses text" color="#FFFF00" fontcolor="#FFFF00"];
+  opt2 [label="3. Model Caching Layer\nIntegrate local caching\nof generated results" color="#7FFF00" fontcolor="#7FFF00"];
+  opt3 [label="4. Dynamic Load Balancing\nAdaptive layer offloading\nbased on active PCIe bandwidth" color="#FF6600" fontcolor="#FF6600"];
+
+  // Relations
+  opt0 -> opt1 [color="#DA70FF"];
+  opt1 -> opt2 [color="#DA70FF"];
+  opt2 -> opt3 [color="#DA70FF"];
+}

@@ -1,297 +1,131 @@
 # paper-processor
 
 <p align="center">
-  <img src="docs/logo.svg" alt="paper-processor logo" width="820">
+  <img src="docs/logo.png" alt="paper-processor logo" width="600">
 </p>
 
-A two-part pipeline for turning an AI/ML research-paper PDF corpus into
-structured study dossiers using local LLMs:
+A local-first pipeline designed to process a corpus of AI/ML research paper PDFs into structured, high-fidelity study dossiers. It performs text extraction, map-reduce summarization, symbolic logic refactoring,現代 C++ implementation generation, Graphviz diagram parsing, and critical analysis.
 
-- **`paper_processor.py`** — Python pipeline. For each PDF it produces a
-  comprehensive summary, a formal-logic refactor, C++20/23 reference
-  implementations of the key algorithms, six Graphviz diagrams (neon
-  on black), and a critical-analysis doc. Metadata tracks progress so
-  runs are resumable across interruptions.
-- **`wizard/`** — [Ratatui](https://ratatui.rs/) TUI (`paper-wizard`)
-  that explains the pipeline, scans your corpus, configures the run,
-  launches the Python process, and streams its log with syntax colour.
+This repository includes a specialized **VRAM Concurrent Resident Fork** and a split-instance launcher designed to achieve **Zero-Swap Concurrency** on multi-GPU setups.
 
-Everything runs locally against [Ollama](https://ollama.com/); there is
-no cloud dependency.
+---
 
-![neon-diagram-aesthetic](https://img.shields.io/badge/theme-neon--on--black-00FF41?style=flat-square)
-![rust-ratatui](https://img.shields.io/badge/TUI-ratatui-FF00FF?style=flat-square)
-![ollama](https://img.shields.io/badge/backend-ollama-00FFFF?style=flat-square)
-![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)
-![rust](https://img.shields.io/badge/rust-stable-CE422B?style=flat-square&logo=rust&logoColor=white)
-![platform](https://img.shields.io/badge/platform-linux-FCC624?style=flat-square&logo=linux&logoColor=black)
-![gpu](https://img.shields.io/badge/GPU-CUDA%20dual--GPU-76b900?style=flat-square&logo=nvidia&logoColor=white)
-![status](https://img.shields.io/badge/status-active-brightgreen?style=flat-square)
-![no-cloud](https://img.shields.io/badge/cloud-none%20%7C%20local--only-lightgrey?style=flat-square)
+## Technical Features
 
-## How it works
+* **`paper_processor.py` (Main)**: Sequential single-instance processing.
+* **`vram_resident_processor.py` (Concurrent Fork)**: Multi-endpoint routing script optimized to run split model endpoints simultaneously, eliminating VRAM loading churn.
+* **`vram_wizard.py` (CLI Wizard)**: Interactive Python terminal dashboard tool to configure directories, endpoints, scope, and launch processes.
+* **`telemetry_monitor.py` (Profiler)**: Zero-dependency live CPU, RAM, Disk, and dual-GPU telemetry terminal monitor.
+* **`wizard/` (TUI Wizard)**: Rust-based Ratatui terminal dashboard that scans the corpus, configures runs, and streams logs with ANSI syntax highlighting.
 
-### System architecture
+Everything runs locally; there is no third-party cloud dependency.
 
-The wizard (or a direct CLI call) drives the Python pipeline; the pipeline
-talks to Ollama over localhost; Ollama auto-schedules layers across both
-GPUs; outputs land in a mirrored dossier tree.
+---
 
+## System Diagrams & Architecture
+
+### 1. System Architecture
+The Python pipeline coordinates text extraction, chunking, and stage completions, querying Ollama APIs.
 ![system architecture](docs/diagrams/01_architecture.png)
 
-### Per-paper processing flow
-
-Each PDF is extracted, chunked with a sliding window (only if it exceeds
-12 pages), condensed via map-reduce, then run through five independent
-prompt stages. Every stage writes its marker to `metadata.json`, so
-partial runs resume exactly where they left off.
-
+### 2. Per-Paper Processing Flow
+PDFs are processed through an iterative pipeline. Checking metadata checkpoints ensures resume-on-interruption capability.
 ![per-paper flow](docs/diagrams/02_per_paper_flow.png)
 
-### Model auto-selection
-
-Page count picks the model tier. The C++ stage always runs on the
-code-specialised model regardless of length. `num_gpu` is intentionally
-left unset so Ollama can split the 30B models across the 3080+3060 pair
-at 32k context without OOMing.
-
+### 3. Model Auto-Routing
+Page counts pick the model tier. The C++ examples stage runs on a code-specialized candidate.
 ![model routing](docs/diagrams/03_model_routing.png)
 
-### Wizard state machine
+### 4. Hardware Topology & VRAM Pinned Allocation
+In Concurrent Resident mode, GPU resources are isolated. GPU 0 pins the primary reasoning model, and GPU 1 pins the code-generation model, avoiding cross-GPU overhead.
+![hardware topology](docs/diagrams/05_hardware_topology.png)
 
-Five tabs cycle with `Tab` / `Shift-Tab`. `F5` re-probes the environment.
-`Enter` on a Scan row queues that paper into Config; `L` launches the
-Python subprocess from the Run tab; `X` kills it.
+### 5. Split-Instance Network Topology
+To enforce physical VRAM isolation, twin Ollama daemons run on separate ports, restricted to single GPUs using `CUDA_VISIBLE_DEVICES`.
+![network topology](docs/diagrams/06_split_network_topology.png)
 
-![wizard tabs](docs/diagrams/04_wizard_tabs.png)
+### 6. I/O Disk Reads: Swapping vs. Pinned Residency
+In standard scheduling, switching between large models triggers high SSD read rates and 30–60 second loading penalties. Concurrent pinning reduces model loading times to **0 seconds** after startup.
+![io disk residency](docs/diagrams/07_io_disk_residency.png)
 
-> All four diagrams are in [`docs/diagrams/`](docs/diagrams/) as both `.dot`
-> sources and rendered `.svg` / `.png` — regenerate any of them with
-> `dot -Tpng -Gdpi=140 -o foo.png foo.dot`.
+### 7. Optimizations Roadmap
+roadmap of future enhancements.
+![future directions](docs/diagrams/08_future_directions.png)
 
+---
 
-## Output per paper
+## VRAM Residency & Swap Optimization
 
-```
-_processed/<subfolder>/<slug>/
-├── 01_summary.md              # motivation → results → limitations
-├── 02_symbolic_logic.md       # formal notation, theorems, complexity
-├── 03_cpp_examples.md         # C++20/23 implementations, compilable
-├── 04_extras.md               # open questions, critique, connections
-├── diagrams/
-│   ├── 01_<title>.dot + .svg  # architecture
-│   ├── 02_<title>.dot + .svg  # data flow
-│   ├── 03_<title>.dot + .svg  # algorithm flowchart
-│   ├── 04_<title>.dot + .svg  # taxonomy
-│   ├── 05_<title>.dot + .svg  # training loop
-│   └── 06_<title>.dot + .svg  # vs prior art
-└── metadata.json              # model, hash, sections completed
-```
+### The Problem
+When running large models (e.g. `nemotron-3-nano-30b-small` ~24GB and `qwen3-coder:30b` ~18GB), the combined weight footprint (42 GB) exceeds the workstation's physical VRAM capacity (26 GB). As the pipeline transitions between abstract reasoning and C++ code generation, Ollama evicts the inactive model and reads the target model from disk, introducing a **1–2 minute swap penalty per paper**.
 
-<details>
-<summary>Example: generated summary snippet (01_summary.md)</summary>
+### The Solution: Pinned Concurrency
+By sizing down the models to fit concurrently inside VRAM and binding Ollama daemons to specific GPUs, we keep both models resident in memory:
+1. **GPU 0 (RTX 5080, 16GB)**: Load `deepseek-r1:14b-qwen-distill-q8_0` (VRAM: ~15 GB) on Port **11434**.
+2. **GPU 1 (RTX 3080, 10GB)**: Load `qwen2.5-coder:14b` (VRAM: ~9 GB) on Port **11435**.
 
-```markdown
-# Summary: Attention Is All You Need
+---
 
-## 1. Motivation & Problem Statement
-Sequence-to-sequence models at the time relied on recurrent or convolutional
-architectures as their backbone encoder-decoder. Recurrence serialises
-computation across the sequence length, preventing parallelisation during
-training and introducing vanishing-gradient difficulties over long contexts.
-The authors propose replacing recurrence entirely with self-attention, which
-computes dependencies between all positions in constant depth.
+## Getting Started
 
-## 2. Core Methodology
-The Transformer stacks N=6 identical layers in both the encoder and decoder.
-Each layer applies multi-head attention (h=8 heads, d_model=512) followed by
-a position-wise feed-forward sublayer (d_ff=2048). Residual connections and
-layer normalisation wrap each sublayer. Positional encoding (sinusoidal) is
-added to the input embeddings to inject sequence order.
+### 1. Prerequisites
+* **OS**: Linux (Ubuntu 22.04+ recommended)
+* **GPU**: Dual-GPU pool (NVIDIA RTX 5080 + RTX 3080 or equivalent)
+* **API**: [Ollama](https://ollama.com/) running locally
+* **System Packages**: `graphviz` (for diagram rendering)
 
-## 3. Key Contributions
-- Self-attention with O(1) sequential operations vs O(n) for recurrence.
-- Multi-head attention: projects queries, keys, and values h times in parallel.
-- Scaled dot-product attention: divides by √d_k to prevent vanishing softmax
-  gradients in high-dimensional spaces.
-
-## 4. Experimental Results
-WMT 2014 English→German: 28.4 BLEU (new SOTA, +2 BLEU over prior ensemble).
-WMT 2014 English→French: 41.0 BLEU, single model, fraction of training cost.
-Training: 8× P100 GPUs, 3.5 days for the big model.
-
-## 5. Limitations
-- Quadratic memory cost in sequence length (attention matrix is n×n).
-- No explicit inductive bias for locality — may require more data than CNNs
-  on tasks where local structure matters.
-- Positional encoding is fixed sinusoidal; learned embeddings explored but
-  not adopted.
-```
-
-</details>
-
-## Hardware targets
-
-Written for a dual-GPU workstation (validated on RTX 3080 10 GB + RTX 3060
-12 GB). Models auto-route by page count:
-
-| Pages | Model | VRAM |
-|---|---|---|
-| ≤ 8 | `deepseek-r1:8b` | ~5 GB |
-| ≤ 18 | `deepseek-r1:14b` | ~9 GB |
-| > 18 | `gemma4:31b-it-q4_K_M` | ~18 GB dual-GPU |
-| C++ stage | `qwen3-coder:30b` | ~17 GB dual-GPU |
-
-Single-GPU setups: force `--model deepseek-r1:14b` for all stages.
-
-## Prerequisites
-
-| Requirement | Notes |
-|-------------|-------|
-| Linux (Ubuntu 22.04+) | Single-platform; not tested on macOS or Windows |
-| Python 3.10+ | `python3 --version` to check |
-| Rust stable | Required for `wizard/` TUI — install via [rustup](https://rustup.rs/) |
-| [Ollama](https://ollama.com/) | Running as a local service on port 11434 |
-| graphviz | `sudo apt install graphviz` |
-| NVIDIA drivers + CUDA | `nvidia-smi` must work; CPU-only mode is untested |
-| VRAM | 10 GB minimum (single GPU); 24 GB+ recommended (dual GPU) |
-
-## Quick start
-
+### 2. Spawning Split Endpoints
+To start the isolated, VRAM-locked Ollama daemons:
 ```bash
-# System + Python deps
-bash setup_paper_processor.sh
-
-# Pull the models you want (see table above)
-ollama pull deepseek-r1:8b
-ollama pull deepseek-r1:14b
-ollama pull nemotron-3-nano-30b-small
-ollama pull qwen3-coder:30b
-
-# Recommended: interactive launcher — pick main + C++ models from a menu, then run
-./pp.py ~/my_papers --paper "attention.pdf"
-
-# Headless on a directory of PDFs (auto-selects model by page count)
-python paper_processor.py ~/my_papers
-
-# Single paper with interactive model selection
-python paper_processor.py ~/my_papers --paper "attention.pdf" -s -c
-
-# Single paper, forced models (non-interactive)
-python paper_processor.py ~/my_papers --paper "attention.pdf" \
-                                       --model devstral:24b \
-                                       --code-model qwen2.5-coder:14b
-
-# Re-run just the diagram stage
-python paper_processor.py ~/my_papers --reprocess diagrams
-
-# Status of the whole corpus, no LLM calls
-python paper_processor.py ~/my_papers --list
-
-# Evict any loaded model from VRAM before starting (restart service if stuck)
-python paper_processor.py ~/my_papers --override
+chmod +x docs/sessions/2026-06-04T14-03-40_gpu_telemetry/start_isolated_backends.sh
+./docs/sessions/2026-06-04T14-03-40_gpu_telemetry/start_isolated_backends.sh
 ```
 
-## TUI wizard
-
+### 3. Launching the Interactive CLI Wizard
+To configure your run options, pick papers, choose models, and run:
 ```bash
-cd wizard
-cargo build --release
-sudo ln -sf "$PWD/target/release/paper-wizard" /usr/local/bin/paper-wizard
-paper-wizard
+./vram_wizard.py
 ```
 
-Five tabs: **Overview · Scan · Config · Run · Help**. Streams the Python
-subprocess output live with colour coding; `L` launches, `X` kills,
-`Tab` cycles panels, `?` pops a key-ref overlay. Scan status is read
-from each paper's `metadata.json` using the same slug logic as the
-Python side, so partial runs are recognised and resumed correctly.
-
-| Overview | Config |
-|----------|--------|
-| ![wizard overview](docs/screenshots/wizard-overview.png) | ![wizard config](docs/screenshots/wizard-config.png) |
-
-| Corpus scan (103 papers indexed) | Live run — log streaming |
-|----------------------------------|--------------------------|
-| ![wizard scan](docs/screenshots/wizard-scan-live.png) | ![wizard run](docs/screenshots/wizard-run-live.png) |
-
-See [`wizard/README.md`](wizard/README.md) for full keybindings.
-
-## CLI flags
-
+### 4. Running the Telemetry Monitor
+To check GPU core load, temperature, power, and Ollama VRAM allocations in real-time:
+```bash
+python3 docs/sessions/2026-06-04T14-03-40_gpu_telemetry/telemetry_monitor.py
 ```
-./pp.py [flags]                   recommended entry point — shows model pickers first
-
-python paper_processor.py [papers_dir]
-    --backend {ollama,openclaw}   default ollama
-    --model MODEL                 force one model for every stage
-    --code-model MODEL            force model for C++ sections only
-    -s / --select-model           interactive menu: pick main model before processing
-    -c / --select-code-model      interactive menu: pick C++ section model before processing
-    --paper FILENAME              single paper (basename or rel path)
-    --reprocess SECTION           summary|logic|cpp|diagrams|extras|all
-    --workers N                   parallel papers (⚠ VRAM)
-    --list                        show status table, exit
-    --override                    evict loaded Ollama models; restart service if stuck
-    -v / --verbose                extra debug output
+To print an instant hardware snapshot and exit:
+```bash
+python3 docs/sessions/2026-06-04T14-03-40_gpu_telemetry/telemetry_monitor.py --once
 ```
 
-See [`LESSONS_LEARNED.md`](LESSONS_LEARNED.md) for operational notes and gotchas.
+---
 
-## Design notes
+## CLI Flags (Resident Fork)
 
-- **Resumable.** `metadata.json` records which sections finished. Re-running
-  skips completed papers entirely and skips completed sections of partial
-  papers. Safe to Ctrl-C anytime.
-- **Recursive.** `papers_dir` is walked with `rglob`; the output tree
-  mirrors the input subfolder structure so slugs can never collide.
-- **Sliding-window chunking.** Papers longer than 12 pages are chunked
-  with 2-page overlap, map-reduced per chunk, then condensed before the
-  downstream prompts run on the distilled context.
-- **Diagram aesthetic.** The LLM is explicitly instructed to emit neon
-  accent colours on a black background; a post-processor injects
-  `bgcolor=black` + default neon styles if the model forgets.
-- **`--override` GPU provisioner.** Checks `/api/ps` before the first
-  paper and evicts every loaded model via `keep_alive=0`. If any model
-  is still resident after 20 s it restarts the `ollama` systemd service
-  and waits up to 45 s for it to come back. Safe to combine with any
-  other flag; no-op when the backend is not Ollama.
-- **`num_gpu` intentionally unset.** Hard-forcing all layers on GPU causes
-  OOM on 30B models at `num_ctx=32768` across a ≤22 GB VRAM pool; letting
-  Ollama auto-schedule fixes it.
+```
+python vram_resident_processor.py [papers_dir] [flags]
+    --primary-url URL      URL of primary reasoning Ollama server (default: port 11434)
+    --code-url URL         URL of code-generation Ollama server (default: port 11434)
+    --model MODEL          Force a primary model
+    --code-model MODEL     Force a code model
+    --paper FILENAME       Process a single PDF
+    --reprocess SECTION    Force re-running summary|logic|cpp|diagrams|extras|all
+    --workers N            Parallel paper workers
+    --list                 Print status table and exit
+    --override             Force-evict all loaded models on both endpoints
+```
 
-## Status
+---
 
-Built and validated on a single 4-page paper through all five sections +
-six SVG diagrams. Runtime budget for a 5,000-paper corpus at average
-~20-40 min/paper is measured in weeks, not hours — plan in batches.
+## Forks Table
 
-## Operator notes
+| Directory | Feature | Rationale |
+|-----------|---------|-----------|
+| [`vram_resident_processor.py`](vram_resident_processor.py) | **Zero-Swap Concurrency** | Pinned dual-endpoint routing utilizing GPU 0 (distill-q8_0) and GPU 1 (coder-14b) concurrently. |
+| [`fork_2026-05-15T235801Z/`](fork_2026-05-15T235801Z/) | **Performance Optimization** | Configurable context window size, KV cache, and Flash Attention tweaks. |
+| [`fork_gptOSS_textonly_2026-05-14T205304Z/`](fork_gptOSS_textonly_2026-05-14T205304Z/) | **Text-Only Gemma Eviction** | Replaces Gemma 31B vision model with text-only `gpt-oss:20b`, saving ~6 GB VRAM. |
 
-Workstation setup notes that aren't part of the pipeline itself —
-toolchain installs, environment provisioning, incident write-ups —
-live in [`docs/sessions/`](docs/sessions/). Each file is timestamped
-(`YYYY-MM-DDTHHMMSSZ_<topic>.md`) and self-contained.
+---
 
-Recent additions on the `morlok` host include Python 3.13 venv setup,
-a zsh install, a from-source lite-xl build, and a Midnight Commander
-install with a user-local Dracula skin (`~/.local/share/mc/skins/`,
-selected via `~/.config/mc/ini`). None of these are required to run
-`paper_processor.py`; they document the operator environment so the
-state of the workstation can be reconstructed from the repo alone.
-
-## Forks
-
-| Directory | Model change | Rationale |
-|-----------|-------------|-----------|
-| [`fork_2026-05-15T235801Z/`](fork_2026-05-15T235801Z/) | **Performance Optimization** | Optimized for RTX 5080 + 3080 mix. Added flags for `--ctx`, `--kv-cache`, and `--single-runner` to fix VRAM scheduling churn. |
-| [`fork_gptOSS_textonly_2026-05-14T205304Z/`](fork_gptOSS_textonly_2026-05-14T205304Z/) | `xl_quality`: `gemma4:31b-it-q4_K_M` → `gpt-oss:20b` | Pipeline is text-only (`fitz.get_text`; no image fields in either backend). Gemma 4's multimodal capacity is never exercised; `gpt-oss:20b` reclaims ~6 GB VRAM on the dual-GPU pool. |
-
-Each fork carries its own `docs/sessions/` log and a `README.md` describing the
-change. Routing thresholds, prompts, and checkpointing are identical to the
-parent unless otherwise noted.
-
-## Licence
+## License
 
 MIT

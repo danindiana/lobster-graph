@@ -1,0 +1,45 @@
+digraph G {
+  graph [bgcolor="black" fontcolor="#00FFFF" fontname="Courier New" fontsize=12 label="HARDWARE TOPOLOGY: PCIe & VRAM PARTITIONING" labelloc=t];
+  node  [style=filled fillcolor="#0a0a0a" color="#00FF41" fontcolor="#00FF41" fontname="Courier New" fontsize=10];
+  edge  [color="#FF00FF" penwidth=2.0 fontname="Courier New" fontsize=9 fontcolor="#DA70FF"];
+
+  // Core Nodes
+  cpu [label="SYSTEM CPU\nCore Processing\n128 GB RAM" color="#FFFF00" fontcolor="#FFFF00"];
+  nvme [label="NVME SSD\nModel Weight Files\n(On-Disk)" color="#7FFF00" fontcolor="#7FFF00"];
+
+  subgraph cluster_pcie {
+    label="PCIe Interconnect Bus";
+    color="#0080FF";
+    fontcolor="#0080FF";
+    style=dashed;
+
+    gpu0 [label="GPU 0\nNVIDIA RTX 5080\n16 GB VRAM" color="#FF00FF" fontcolor="#FF00FF"];
+    gpu1 [label="GPU 1\nNVIDIA RTX 3080\n10 GB VRAM" color="#FF00FF" fontcolor="#FF00FF"];
+  }
+
+  subgraph cluster_gpu0_vram {
+    label="GPU 0 Memory Allocation";
+    color="#DA70FF";
+    fontcolor="#DA70FF";
+
+    primary_model [label="PRIMARY MODEL\ndeepseek-r1:14b-distill-q8\nSize: ~15 GB VRAM" color="#00FFFF" fontcolor="#00FFFF"];
+    primary_kv [label="Primary KV Cache\n(In-Memory Context)" color="#FF6600" fontcolor="#FF6600"];
+  }
+
+  subgraph cluster_gpu1_vram {
+    label="GPU 1 Memory Allocation";
+    color="#DA70FF";
+    fontcolor="#DA70FF";
+
+    code_model [label="CODE MODEL\nqwen2.5-coder:14b\nSize: ~9 GB VRAM" color="#00FFFF" fontcolor="#00FFFF"];
+    code_kv [label="Code KV Cache\n(In-Memory Context)" color="#FF6600" fontcolor="#FF6600"];
+  }
+
+  // Relations
+  nvme -> cpu [label="Boot/IO Load" color="#7FFF00"];
+  cpu -> gpu0 [label="PCIe Gen 5 x16\n(32 GT/s)" color="#FFFF00"];
+  cpu -> gpu1 [label="PCIe Gen 4 x8\n(16 GT/s)" color="#FFFF00"];
+
+  gpu0 -> primary_model [style=invis];
+  gpu1 -> code_model [style=invis];
+}

@@ -1,0 +1,40 @@
+digraph G {
+  graph [bgcolor="black" fontcolor="#00FFFF" fontname="Courier New" fontsize=12 label="SPLIT ENDPOINT NETWORK TOPOLOGY" labelloc=t];
+  node  [style=filled fillcolor="#0a0a0a" color="#00FF41" fontcolor="#00FF41" fontname="Courier New" fontsize=10];
+  edge  [color="#FF00FF" penwidth=2.0 fontname="Courier New" fontsize=9 fontcolor="#DA70FF"];
+
+  // Nodes
+  cli [label="paper_processor CLI\nvram_resident_processor.py" color="#FFFF00" fontcolor="#FFFF00"];
+
+  subgraph cluster_ollama_0 {
+    label="Ollama Instance 0 (Primary)";
+    color="#0080FF";
+    fontcolor="#0080FF";
+    style=dashed;
+
+    port_34 [label="PORT: 11434" color="#FF00FF" fontcolor="#FF00FF"];
+    env_0 [label="CUDA_VISIBLE_DEVICES=0" color="#7FFF00" fontcolor="#7FFF00"];
+    gpu_0 [label="PHYSICAL GPU 0\n(RTX 5080)" color="#00FFFF" fontcolor="#00FFFF"];
+  }
+
+  subgraph cluster_ollama_1 {
+    label="Ollama Instance 1 (Code)";
+    color="#0080FF";
+    fontcolor="#0080FF";
+    style=dashed;
+
+    port_35 [label="PORT: 11435" color="#FF00FF" fontcolor="#FF00FF"];
+    env_1 [label="CUDA_VISIBLE_DEVICES=1" color="#7FFF00" fontcolor="#7FFF00"];
+    gpu_1 [label="PHYSICAL GPU 1\n(RTX 3080)" color="#00FFFF" fontcolor="#00FFFF"];
+  }
+
+  // Relations
+  cli -> port_34 [label="HTTP requests (Summary, Logic,\nDiagrams, Extras) --primary-url" color="#FFFF00"];
+  cli -> port_35 [label="HTTP requests (C++ Examples)\n--code-url" color="#FF6600"];
+
+  port_34 -> env_0 [style=invis];
+  env_0 -> gpu_0 [label="Restricts to" color="#00FF41"];
+
+  port_35 -> env_1 [style=invis];
+  env_1 -> gpu_1 [label="Restricts to" color="#00FF41"];
+}

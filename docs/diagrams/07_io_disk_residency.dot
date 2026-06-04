@@ -1,0 +1,32 @@
+digraph G {
+  graph [bgcolor="black" fontcolor="#00FFFF" fontname="Courier New" fontsize=12 label="I/O PROFILE: SWAPPING VS PINNED RESIDENCY" labelloc=t rankdir=LR];
+  node  [style=filled fillcolor="#0a0a0a" color="#00FF41" fontcolor="#00FF41" fontname="Courier New" fontsize=10];
+  edge  [color="#FF00FF" penwidth=2.0 fontname="Courier New" fontsize=9 fontcolor="#DA70FF"];
+
+  subgraph cluster_swap {
+    label="OLD WAY: Sequential Swapping (RTX 5080 + 3080)";
+    color="#FF0055";
+    fontcolor="#FF0055";
+    style=dashed;
+
+    disk_read [label="NVMe Disk Reads\n(15-24 GB model loads)" color="#FF6600" fontcolor="#FF6600"];
+    vram_evict [label="VRAM Model Eviction\n(keep_alive=0)" color="#FF00FF" fontcolor="#FF00FF"];
+    load_penalty [label="Swap Latency\n(30s-60s Penalty\nper transition)" color="#FF0055" fontcolor="#FF0055"];
+
+    disk_read -> vram_evict -> load_penalty;
+  }
+
+  subgraph cluster_pinned {
+    label="NEW WAY: Pinned Concurrent Residency";
+    color="#00FF41";
+    fontcolor="#00FF41";
+    style=dashed;
+
+    vram_ready_0 [label="Primary Model\nResident on GPU 0" color="#00FFFF" fontcolor="#00FFFF"];
+    vram_ready_1 [label="Code Model\nResident on GPU 1" color="#00FFFF" fontcolor="#00FFFF"];
+    zero_latency [label="Instant Transition\n(0s Load Overhead)" color="#00FF41" fontcolor="#00FF41"];
+
+    vram_ready_0 -> zero_latency [color="#00FF41"];
+    vram_ready_1 -> zero_latency [color="#00FF41"];
+  }
+}
