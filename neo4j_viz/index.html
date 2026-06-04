@@ -479,6 +479,52 @@
     .login-modal .btn-primary:hover {
       opacity: 0.9;
     }
+
+    body.light-mode {
+      --bg-dark: #f8fafc;
+      --panel-bg: rgba(255, 255, 255, 0.85);
+      --border-color: rgba(0, 0, 0, 0.1);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      background-image: 
+        radial-gradient(at 10% 20%, rgba(21, 94, 117, 0.05) 0px, transparent 50%),
+        radial-gradient(at 90% 80%, rgba(88, 28, 135, 0.05) 0px, transparent 50%);
+    }
+    body.light-mode .stat-val, body.light-mode .drawer-title-group h2, body.light-mode .details-card p {
+      color: #0f172a;
+    }
+    body.light-mode .search-box input {
+      background: rgba(255, 255, 255, 0.6);
+      color: #0f172a;
+    }
+    body.light-mode .btn {
+      background: rgba(0, 0, 0, 0.05);
+      color: #0f172a;
+    }
+    body.light-mode .btn:hover {
+      background: rgba(0, 0, 0, 0.1);
+    }
+    body.light-mode .details-drawer {
+      background: rgba(248, 250, 252, 0.95);
+    }
+    body.light-mode .code-container {
+      background: #f1f5f9;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      color: #047857;
+    }
+    body.light-mode .diagram-container {
+      background: #f1f5f9;
+    }
+    body.light-mode .login-modal {
+      background: #ffffff;
+    }
+    body.light-mode .login-modal p {
+      color: #475569;
+    }
+    body.light-mode .input-group input {
+      background: rgba(0, 0, 0, 0.05);
+      color: #0f172a;
+    }
   </style>
 </head>
 <body>
@@ -545,6 +591,7 @@
         <div class="control-row">
           <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
           <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="pause" style="width: 14px; height: 14px;"></i>Pause Layout</button>
+          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Light Mode</button>
         </div>
         <div class="legend">
           <div class="legend-item"><span class="legend-dot" style="color: var(--color-paper); background: var(--color-paper)"></span>Paper Node</div>
@@ -648,14 +695,15 @@
           }
 
           if (r) {
+            const isLight = document.body.classList.contains('light-mode');
             edges.push({
               id: r.identity.toString(),
               from: r.start.toString(),
               to: r.end.toString(),
               label: r.type,
-              font: { strokeWidth: 0, color: "rgba(255,255,255,0.3)", size: 10, face: "Outfit" },
+              font: { strokeWidth: 0, color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)", size: 10, face: "Outfit" },
               arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-              color: { color: "rgba(255, 255, 255, 0.12)", highlight: "rgba(0, 229, 255, 0.4)" }
+              color: { color: isLight ? "rgba(0,0,0,0.15)" : "rgba(255, 255, 255, 0.12)", highlight: "rgba(0, 229, 255, 0.4)" }
             });
           }
         });
@@ -721,6 +769,7 @@
         size = 14;
       }
 
+      const isLight = document.body.classList.contains('light-mode');
       return {
         id: id,
         label: title.length > 20 ? title.substring(0, 18) + "..." : title,
@@ -728,12 +777,12 @@
         shape: shape,
         size: size,
         color: {
-          background: "rgba(9, 13, 22, 0.9)",
+          background: isLight ? "rgba(255, 255, 255, 0.9)" : "rgba(9, 13, 22, 0.9)",
           border: color,
-          highlight: { background: "rgba(0, 229, 255, 0.2)", border: "var(--color-paper)" }
+          highlight: { background: isLight ? "rgba(0, 229, 255, 0.1)" : "rgba(0, 229, 255, 0.2)", border: "var(--color-paper)" }
         },
         borderWidth: 2,
-        font: { color: "#e2e8f0", size: 12, face: "Outfit", strokeWidth: 0 },
+        font: { color: isLight ? "#0f172a" : "#e2e8f0", size: 12, face: "Outfit", strokeWidth: 0 },
         properties: props,
         type: label
       };
@@ -932,6 +981,29 @@
       lucide.createIcons();
     }
 
+    function toggleTheme() {
+      document.body.classList.toggle('light-mode');
+      const isLight = document.body.classList.contains('light-mode');
+      
+      const themeBtn = document.getElementById("theme-btn");
+      if(isLight) {
+        themeBtn.innerHTML = `<i data-lucide="moon" style="width: 14px; height: 14px;"></i>Dark Mode`;
+      } else {
+        themeBtn.innerHTML = `<i data-lucide="sun" style="width: 14px; height: 14px;"></i>Light Mode`;
+      }
+      lucide.createIcons();
+
+      // Update edges (nodes are handled by filterGraph)
+      const newEdges = rawEdges.map(e => ({
+        id: e.id,
+        color: { color: isLight ? "rgba(0,0,0,0.15)" : "rgba(255, 255, 255, 0.12)" },
+        font: { color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)" }
+      }));
+      edgesDataset.update(newEdges);
+
+      filterGraph();
+    }
+
     function filterGraph() {
       const q = document.getElementById("search-input").value.toLowerCase();
       if (!q) {
@@ -939,6 +1011,7 @@
         return;
       }
 
+      const isLight = document.body.classList.contains('light-mode');
       const filtered = rawNodes.map(node => {
         const match = node.title.toLowerCase().includes(q) || 
                       (node.properties.definition && node.properties.definition.toLowerCase().includes(q)) ||
@@ -946,10 +1019,10 @@
         return {
           id: node.id,
           color: {
-            background: match ? "rgba(9, 13, 22, 0.9)" : "rgba(15, 23, 42, 0.1)",
-            border: match ? node.color.border : "rgba(255,255,255,0.02)"
+            background: match ? (isLight ? "rgba(255, 255, 255, 0.9)" : "rgba(9, 13, 22, 0.9)") : (isLight ? "rgba(0,0,0,0.05)" : "rgba(15, 23, 42, 0.1)"),
+            border: match ? node.color.border : (isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.02)")
           },
-          font: { color: match ? "#e2e8f0" : "rgba(255,255,255,0.08)" }
+          font: { color: match ? (isLight ? "#0f172a" : "#e2e8f0") : (isLight ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.08)") }
         };
       });
 
