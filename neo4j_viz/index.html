@@ -744,27 +744,27 @@
 
       // Classify node types and assign sleek aesthetic variables
       if (labels.includes("Paper")) {
-        color = "var(--color-paper)";
+        color = "#00e5ff";
         shape = "dot";
         size = 28;
       } else if (labels.includes("Concept")) {
-        color = "var(--color-concept)";
+        color = "#d500f9";
         shape = "dot";
         size = 18;
       } else if (labels.includes("Theorem")) {
-        color = "var(--color-theorem)";
+        color = "#ffd600";
         shape = "diamond";
         size = 14;
       } else if (labels.includes("Algorithm")) {
-        color = "var(--color-algorithm)";
+        color = "#ff6d00";
         shape = "triangle";
         size = 14;
       } else if (labels.includes("CodeSnippet")) {
-        color = "var(--color-code)";
+        color = "#00e676";
         shape = "square";
         size = 14;
       } else if (labels.includes("Diagram")) {
-        color = "var(--color-diagram)";
+        color = "#ff1744";
         shape = "hexagon";
         size = 14;
       }
@@ -779,7 +779,7 @@
         color: {
           background: isLight ? "rgba(255, 255, 255, 0.9)" : "rgba(9, 13, 22, 0.9)",
           border: color,
-          highlight: { background: isLight ? "rgba(0, 229, 255, 0.1)" : "rgba(0, 229, 255, 0.2)", border: "var(--color-paper)" }
+          highlight: { background: isLight ? "rgba(0, 229, 255, 0.1)" : "rgba(0, 229, 255, 0.2)", border: "#00e5ff" }
         },
         borderWidth: 2,
         font: { color: isLight ? "#0f172a" : "#e2e8f0", size: 12, face: "Outfit", strokeWidth: 0 },
