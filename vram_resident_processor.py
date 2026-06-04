@@ -83,9 +83,9 @@ class _ShutdownRequested(Exception):
 # Models in approximate VRAM-fit order
 MODEL_TIERS = {
     # ── Pinned VRAM Concurrency Defaults ──────────────────────────────────
-    "xl_quality":   "deepseek-r1:14b-qwen-distill-q8_0", # ~15 GB VRAM, fits entirely on GPU 0
-    "xl_reason":    "deepseek-r1:14b-qwen-distill-q8_0",
-    "xl_code":      "qwen2.5-coder:14b",                 # ~9 GB VRAM, fits entirely on GPU 1
+    "xl_quality":   "deepseek-r1:14b",                   # ~9 GB VRAM, fits entirely on GPU 0 with headroom
+    "xl_reason":    "deepseek-r1:14b",
+    "xl_code":      "qwen2.5-coder:14b",                 # ~9 GB VRAM, fits entirely on GPU 1 with headroom
     # ── Mid tier  ────────────────────────────────────────────────────────
     "mid_code":     "qwen2.5-coder:14b",
     "mid_reason":   "deepseek-r1:14b",
@@ -113,8 +113,8 @@ CODE_OLLAMA_URL = os.environ.get("CODE_OLLAMA_URL", "http://localhost:11434")
 # Curated list of known-good models for the interactive selector (-s flag).
 # Ordered for zero-swap dual-GPU concurrency preference first.
 KNOWN_GOOD_MODELS: List[tuple] = [
-    ("deepseek-r1:14b-qwen-distill-q8_0", "~15 GB", "xl_reason — Q8 concurrent default", True),
-    ("deepseek-r1:14b",                    "~9 GB",  "single — reliable, 9 GB",         False),
+    ("deepseek-r1:14b-qwen-distill-q8_0", "~15 GB", "xl_reason — Q8 concurrent alternative", False),
+    ("deepseek-r1:14b",                    "~9 GB",  "single — reliable 9 GB default",   True),
     ("nemotron-terminal-14b:latest",       "~9 GB",  "single — reliable, 9 GB",         False),
     ("Maoyue/AceReason-Nemotron-14B-Q4_K_M:latest", "~9 GB", "single — reasoning, 9 GB", False),
     ("ministral-3:14b",                    "~9 GB",  "single — reliable, 9 GB",         False),
@@ -409,9 +409,16 @@ class Backend:
         self,
         prompt: str,
         model: Optional[str] = None,
-        ctx_tokens: int = 32768,
+        ctx_tokens: Optional[int] = None,
     ) -> str:
         m = model or self.default_model
+        if ctx_tokens is None:
+            # Estimate prompt tokens (approx 4 chars per token) and add output budget
+            prompt_tokens = len(prompt) // 4
+            ctx_tokens = prompt_tokens + 2048
+            # Bound context between 4096 and 16384 for safe VRAM residency
+            ctx_tokens = min(16384, max(4096, ctx_tokens))
+
         if self.name == "ollama":
             return self._call_ollama(prompt, m, ctx_tokens)
         return self._call_openclaw(prompt, m)
@@ -611,7 +618,7 @@ def map_reduce_chunks(
             "Summarise this chunk concisely, preserving all technical details, "
             "equations, and experimental results:\n\n" + chunk[:18000]
         )
-        summary = backend.call(prompt, model, ctx_tokens=16384)
+        summary = backend.call(prompt, model, ctx_tokens=8192)
         partial.append(f"### Chunk {idx}/{len(chunks)}\n{summary}")
         print(f"        chunk {idx}/{len(chunks)} ✓")
 
@@ -882,7 +889,7 @@ class PaperProcessor:
                 raw = self.primary_backend.call(
                     self._tag_prompt(DIAGRAM_PROMPT, capped[:60_000]),
                     model,
-                    ctx_tokens=32768,
+                    ctx_tokens=16384,
                 )
             except _ShutdownRequested:
                 _checkpoint()
