@@ -17,6 +17,10 @@ DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class DashboardHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
+        # Strip query parameters and hash fragments
+        path = path.split('?', 1)[0]
+        path = path.split('#', 1)[0]
+        
         # Intercept and map /_processed/ assets to the external processed SSD folder
         if path.startswith("/_processed/"):
             rel_path = path[len("/_processed/"):]
