@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # vram_wizard.py
-# Interactive CLI wizard to configure and run the zero-swap resident pipeline.
+# Interactive CLI wizard and control center to manage the pipeline and viz.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import os
@@ -19,7 +19,7 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 UNDERLINE = "\033[4m"
 
-DEFAULT_PAPERS_DIR = "/home/jeb/Documents/AI-ML_Papers"
+DEFAULT_PAPERS_DIR = "/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu"
 BACKEND_SCRIPT_PATH = "./docs/sessions/2026-06-04T14-03-40_gpu_telemetry/start_isolated_backends.sh"
 FORK_SCRIPT_PATH = "vram_resident_processor.py"
 
@@ -50,13 +50,136 @@ def prompt_input(prompt_text, default_val):
     raw = input(f"\n  {BOLD}{prompt_text}{RESET} [{default_val}]: ").strip()
     return raw if raw else default_val
 
-def main():
+def manage_visualization():
     clear_screen()
-    print(f"  {BOLD}{NEON_CYAN}🦞 DUAL-GPU VRAM-RESIDENT PIPELINE WIZARD{RESET}")
+    print(f"  {BOLD}{NEON_CYAN}📊 GRAPH VISUALIZATION DASHBOARD MANAGER{RESET}")
     print(f"  {'━'*60}")
-    print(f"  Configure and launch the optimized zero-swap paper processing pipeline.")
     print()
+    
+    # Check status
+    neo4j_running = False
+    server_running = False
+    
+    # Check neo4j docker container status
+    try:
+        r = subprocess.run(["docker", "ps", "--filter", "name=paper-processor-neo4j", "--format", "{{.Status}}"],
+                           capture_output=True, text=True)
+        if r.stdout.strip():
+            neo4j_running = True
+            neo4j_status = f"{NEON_GREEN}ACTIVE ({r.stdout.strip()}){RESET}"
+        else:
+            neo4j_status = f"{NEON_ORANGE}INACTIVE (Stopped){RESET}"
+    except Exception:
+        neo4j_status = f"{NEON_ORANGE}UNKNOWN (Docker error){RESET}"
+        
+    # Check if dashboard server is running on port 8585
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        if s.connect_ex(('localhost', 8585)) == 0:
+            server_running = True
+            server_status = f"{NEON_GREEN}ACTIVE (Listening on Port 8585){RESET}"
+        else:
+            server_status = f"{NEON_ORANGE}INACTIVE{RESET}"
+            
+    print(f"  • Neo4j Graph DB Container  : {neo4j_status}")
+    print(f"  • Dashboard Web Server Port : {server_status}")
+    print()
+    
+    action = prompt_choice("Select action", [
+        "Start Visualization Services (Neo4j + Web Server)",
+        "Stop Visualization Services",
+        "Restart Services",
+        "Return to Main Menu"
+    ], default_val=1)
+    
+    if action == 1:
+        print(f"\n  🔄 Starting services...")
+        # Start Neo4j
+        try:
+            os.chdir("neo4j_viz")
+            subprocess.run(["docker", "compose", "up", "-d"])
+            os.chdir("..")
+        except Exception as e:
+            print(f"  ❌ Error starting Neo4j: {e}")
+            os.chdir("..")
+            
+        # Start web server if not running
+        if not server_running:
+            try:
+                subprocess.Popen([sys.executable, "neo4j_viz/server.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print("  🖥️   Spawning Dashboard Web Server in background...")
+            except Exception as e:
+                print(f"  ❌ Error spawning web server: {e}")
+        print(f"\n  ✅ Services initialized! Access the dashboard at http://localhost:8585")
+        time.sleep(2)
+    elif action == 2:
+        print(f"\n  🔄 Stopping services...")
+        # Stop Neo4j
+        try:
+            os.chdir("neo4j_viz")
+            subprocess.run(["docker", "compose", "down"])
+            os.chdir("..")
+        except Exception as e:
+            print(f"  ❌ Error stopping Neo4j: {e}")
+            os.chdir("..")
+        # Stop web server
+        try:
+            subprocess.run("pkill -f 'neo4j_viz/server.py'", shell=True)
+            print("  🛑 Stopped Dashboard Web Server process.")
+        except Exception:
+            pass
+        print(f"\n  ✅ Services stopped successfully.")
+        time.sleep(2)
+    elif action == 3:
+        print(f"\n  🔄 Restarting services...")
+        # Stop first
+        try:
+            os.chdir("neo4j_viz")
+            subprocess.run(["docker", "compose", "down"])
+            os.chdir("..")
+        except Exception:
+            os.chdir("..")
+        try:
+            subprocess.run("pkill -f 'neo4j_viz/server.py'", shell=True)
+        except Exception:
+            pass
+        # Start
+        try:
+            os.chdir("neo4j_viz")
+            subprocess.run(["docker", "compose", "up", "-d"])
+            os.chdir("..")
+        except Exception:
+            os.chdir("..")
+        subprocess.Popen([sys.executable, "neo4j_viz/server.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"\n  ✅ Services restarted successfully!")
+        time.sleep(2)
+        
+    # Return to main menu recursively
+    main()
 
+def sync_graph_db():
+    clear_screen()
+    print(f"  {BOLD}{NEON_CYAN}🔄 MANUAL GRAPH DB SYNC{RESET}")
+    print(f"  {'━'*60}")
+    print()
+    print("  Syncing processed papers in output directory to Neo4j database...")
+    print("  This parses summaries, logic notation, theorems, and diagrams...")
+    print()
+    
+    try:
+        subprocess.run([sys.executable, "neo4j_viz/neo4j_importer.py"])
+    except Exception as e:
+        print(f"\n  ❌ Sync failed: {e}")
+        
+    input("\n  Press Enter to return to main menu...")
+    main()
+
+def launch_pipeline():
+    clear_screen()
+    print(f"  {BOLD}{NEON_CYAN}🦞 PIPELINE CONFIGURATION{RESET}")
+    print(f"  {'━'*60}")
+    
     # 1. Target Directory
     papers_dir = prompt_input("Target directory containing PDF papers", DEFAULT_PAPERS_DIR)
     while not os.path.exists(papers_dir):
@@ -97,7 +220,7 @@ def main():
 
     # 3. Model Picking Mode
     picker_choice = prompt_choice("Model Selection Mode", [
-        "Use optimized pinned concurrent defaults (DeepSeek-R1 14B Q8 & Qwen2.5-Coder 14B)",
+        "Use optimized pinned concurrent defaults (DeepSeek-R1 14B & Qwen2.5-Coder 14B)",
         "Prompt for models interactively before running"
     ], default_val=1)
 
@@ -170,12 +293,38 @@ def main():
     confirm = prompt_input("Press Enter to launch pipeline (or 'c' to cancel)", "").lower()
     if confirm.startswith("c"):
         print("\n  ❌ Launch cancelled by operator.")
-        sys.exit(0)
+        time.sleep(1)
+        main()
+        return
 
     print(f"\n  🚀 Launching pipeline process...\n")
     
     # os.execvp will replace the current process image with the new script
     os.execvp("python3", cmd)
+
+def main():
+    clear_screen()
+    print(f"  {BOLD}{NEON_CYAN}🦞 DUAL-GPU VRAM-RESIDENT CONTROL CENTER{RESET}")
+    print(f"  {'━'*60}")
+    print(f"  Manage the dual-GPU zero-swap resident pipeline and graph dashboard.")
+    print()
+
+    choice = prompt_choice("Select operation", [
+        "Launch Paper Processing Pipeline",
+        "Manage Graph Visualization Dashboard (Neo4j + Web Server)",
+        "Sync Processed Papers to Neo4j Graph DB",
+        "Exit to Shell"
+    ], default_val=1)
+
+    if choice == 1:
+        launch_pipeline()
+    elif choice == 2:
+        manage_visualization()
+    elif choice == 3:
+        sync_graph_db()
+    else:
+        print("\n  👋 Exited. Have a splendid session!")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

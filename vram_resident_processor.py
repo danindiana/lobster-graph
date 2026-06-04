@@ -1044,6 +1044,25 @@ def health_check_openclaw():
         return False
 
 
+def _sync_to_neo4j():
+    """Checks if Neo4j is listening on Port 7687 and runs the importer script to auto-sync."""
+    try:
+        import socket
+        import subprocess
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex(('localhost', 7687)) == 0:
+                print("\n  🔄 Syncing processed results to Neo4j graph database...")
+                subprocess.run(
+                    [sys.executable, "neo4j_viz/neo4j_importer.py"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                print("  ✅ Neo4j database sync complete!")
+    except Exception:
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser(
         prog="paper_processor",
@@ -1306,6 +1325,9 @@ def main():
                 if "timed out" in str(exc).lower():
                     print("  🔄  Timeout detected — restarting Ollama to unblock next paper …")
                     _ollama_restart_service(PRIMARY_OLLAMA_URL)
+
+    # Auto-sync results to Neo4j Graph DB if it is running
+    _sync_to_neo4j()
 
     # ── Summary ────────────────────────────────────────────────────────────
     print(f"\n{'═'*64}")
