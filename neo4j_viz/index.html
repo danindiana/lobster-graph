@@ -378,7 +378,8 @@
       max-width: 100%;
       max-height: 350px;
       object-fit: contain;
-      filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.15));
+      /* Invert black to white for dark mode readability, preserving other colors */
+      filter: invert(1) hue-rotate(180deg) brightness(1.2) drop-shadow(0 0 8px rgba(0, 229, 255, 0.15));
     }
 
     .empty-drawer {
@@ -514,6 +515,9 @@
     }
     body.light-mode .diagram-container {
       background: #f1f5f9;
+    }
+    body.light-mode .diagram-container img {
+      filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.1));
     }
     body.light-mode .login-modal {
       background: #ffffff;
