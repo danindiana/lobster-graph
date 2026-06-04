@@ -11,6 +11,9 @@ trap 'echo -e "\n🛑 Stopping Ollama daemons..."; kill $GPU0_PID $GPU1_PID 2>/d
 echo -e "Stopping standard system Ollama service to free VRAM..."
 sudo systemctl stop ollama || true
 
+# Export system-wide models directory to make downloaded models accessible to user-space instances
+export OLLAMA_MODELS="${OLLAMA_MODELS:-/usr/share/ollama/.ollama/models}"
+
 echo -e "\n🚀 Starting Ollama Backend 0 (Primary) on Port 11434 (RESTRICTED to GPU 0: RTX 5080)..."
 OLLAMA_HOST=127.0.0.1:11434 CUDA_VISIBLE_DEVICES=0 ollama serve > /tmp/ollama_gpu0.log 2>&1 &
 GPU0_PID=$!
