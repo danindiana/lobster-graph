@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lobster Graph — Paper Processing Analytics</title>
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Vis.js Network Library -->
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  
+  <!-- Neo4j JavaScript Driver -->
+  <script src="https://unpkg.com/neo4j-driver"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --panel-bg: rgba(15, 23, 42, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      
+      /* Color Tiers for Graph Nodes */
+      --color-paper: #00e5ff;
+      --color-concept: #d500f9;
+      --color-theorem: #ffd600;
+      --color-algorithm: #ff6d00;
+      --color-code: #00e676;
+      --color-diagram: #ff1744;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      background-image: 
+        radial-gradient(at 10% 20%, rgba(21, 94, 117, 0.15) 0px, transparent 50%),
+        radial-gradient(at 90% 80%, rgba(88, 28, 135, 0.15) 0px, transparent 50%);
+    }
+
+    #app {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      position: relative;
+    }
+
+    /* Main Container */
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      position: relative;
+    }
+
+    /* Header Panel */
+    header {
+      padding: 18px 24px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #00e5ff, #d500f9);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand span {
+      background: rgba(0, 229, 255, 0.1);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      color: var(--color-paper);
+      padding: 2px 8px;
+      font-size: 11px;
+      border-radius: 99px;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .stats {
+      display: flex;
+      gap: 20px;
+    }
+
+    .stat-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .stat-val {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .stat-lbl {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    /* Graph Canvas */
+    #graph-network {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    #graph-network:active {
+      cursor: grabbing;
+    }
+
+    /* Controls Panel */
+    .controls-panel {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 10;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      width: 280px;
+    }
+
+    .search-box {
+      width: 100%;
+      position: relative;
+    }
+
+    .search-box input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .search-box input:focus {
+      border-color: rgba(0, 229, 255, 0.5);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.15);
+    }
+
+    .control-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .legend {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 6px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    /* Details Drawer */
+    .details-drawer {
+      width: 500px;
+      height: 100%;
+      background: rgba(10, 15, 30, 0.85);
+      backdrop-filter: blur(24px);
+      border-left: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      position: absolute;
+      right: 0;
+      top: 0;
+      z-index: 20;
+      box-shadow: -10px 0 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .details-drawer.open {
+      transform: translateX(0);
+    }
+
+    .drawer-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .drawer-title-group h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.2;
+    }
+
+    .drawer-title-group p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+
+    .close-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .drawer-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Scrollbar */
+    .drawer-content::-webkit-scrollbar {
+      width: 6px;
+    }
+    .drawer-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .drawer-content::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 99px;
+    }
+    .drawer-content::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Metadata details classes */
+    .details-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .details-card h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .details-card p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+    }
+
+    /* Embedded Code Block */
+    .code-container {
+      background: #020617;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 14px;
+      overflow-x: auto;
+      font-family: 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #10b981;
+    }
+
+    /* Embedded SVG diagram container */
+    .diagram-container {
+      width: 100%;
+      background: #020617;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 250px;
+      overflow: hidden;
+    }
+
+    .diagram-container img {
+      max-width: 100%;
+      max-height: 350px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.15));
+    }
+
+    .empty-drawer {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: var(--text-muted);
+      gap: 12px;
+      font-size: 15px;
+    }
+
+    /* Overlay */
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .login-modal {
+      background: #0b111e;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 32px;
+      width: 400px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      text-align: center;
+    }
+
+    .login-modal h2 {
+      font-size: 24px;
+      font-weight: 700;
+      background: linear-gradient(90deg, #00e5ff, #d500f9);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .login-modal p {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+    }
+
+    .input-group label {
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    .input-group input {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      padding: 12px 14px;
+      border-radius: 8px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .input-group input:focus {
+      border-color: rgba(0, 229, 255, 0.5);
+    }
+
+    .login-modal .btn-primary {
+      background: linear-gradient(90deg, #00e5ff, #d500f9);
+      border: none;
+      color: #fff;
+      padding: 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0, 229, 255, 0.2);
+    }
+
+    .login-modal .btn-primary:hover {
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app">
+    <!-- Neo4j Connection Modal -->
+    <div id="connection-overlay" class="overlay">
+      <div class="login-modal">
+        <i data-lucide="database" style="width: 48px; height: 48px; color: var(--color-paper); margin: 0 auto;"></i>
+        <h2>Connect to Graph DB</h2>
+        <p>Enter the Neo4j database endpoint and credentials configured on the workstation.</p>
+        
+        <div class="input-group">
+          <label>Bolt URL</label>
+          <input type="text" id="db-url" value="">
+        </div>
+        
+        <div class="input-group">
+          <label>Username</label>
+          <input type="text" id="db-user" value="neo4j">
+        </div>
+        
+        <div class="input-group">
+          <label>Password</label>
+          <input type="password" id="db-pass" value="password123">
+        </div>
+        
+        <button class="btn-primary" onclick="connectAndInitialize()">Initialize Dashboard</button>
+      </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="main-container">
+      <header>
+        <div class="brand">
+          <i data-lucide="shell" style="color: var(--color-paper); width: 24px; height: 24px;"></i>
+          <h1>LOBSTER GRAPH</h1>
+          <span>LAN Analytics Node</span>
+        </div>
+        <div class="stats">
+          <div class="stat-badge">
+            <span class="stat-val" id="count-papers">0</span>
+            <span class="stat-lbl">Papers</span>
+          </div>
+          <div class="stat-badge">
+            <span class="stat-val" id="count-concepts">0</span>
+            <span class="stat-lbl">Concepts</span>
+          </div>
+          <div class="stat-badge">
+            <span class="stat-val" id="count-relations">0</span>
+            <span class="stat-lbl">Edges</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Graph Network Container -->
+      <div id="graph-network"></div>
+
+      <!-- Controls & Legend -->
+      <div class="controls-panel">
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="Search concept or paper..." oninput="filterGraph()">
+        </div>
+        <div class="control-row">
+          <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
+          <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="pause" style="width: 14px; height: 14px;"></i>Pause Layout</button>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-paper); background: var(--color-paper)"></span>Paper Node</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-concept); background: var(--color-concept)"></span>Core Concept</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-theorem); background: var(--color-theorem)"></span>Theorem</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-algorithm); background: var(--color-algorithm)"></span>Pseudocode</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-code); background: var(--color-code)"></span>C++ Code</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-diagram); background: var(--color-diagram)"></span>System Schema</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inspector Drawer -->
+    <div id="drawer" class="details-drawer">
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <h2 id="drawer-node-name">Node Detail</h2>
+          <p id="drawer-node-type">Concept</p>
+        </div>
+        <button class="close-btn" onclick="closeDrawer()"><i data-lucide="x" style="width: 20px; height: 20px;"></i></button>
+      </div>
+      <div class="drawer-content" id="drawer-node-content">
+        <!-- Rendered dynamically -->
+        <div class="empty-drawer">
+          <i data-lucide="info" style="width: 32px; height: 32px;"></i>
+          <span>Click a node in the graph network to inspect detailed content.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize icons
+    lucide.createIcons();
+
+    // Default Bolt URL to current host dynamically for flawless LAN operation
+    document.getElementById("db-url").value = "bolt://" + window.location.hostname + ":7687";
+
+    let driver = null;
+    let network = null;
+    let nodesDataset = new vis.DataSet([]);
+    let edgesDataset = new vis.DataSet([]);
+    let rawNodes = [];
+    let rawEdges = [];
+    let isPhysicsActive = true;
+
+    async function connectAndInitialize() {
+      const url = document.getElementById("db-url").value;
+      const user = document.getElementById("db-user").value;
+      const pass = document.getElementById("db-pass").value;
+
+      try {
+        driver = neo4j.driver(url, neo4j.auth.basic(user, pass));
+        await driver.verifyConnectivity();
+        document.getElementById("connection-overlay").style.display = "none";
+        
+        // Load data from Neo4j
+        await loadGraphData();
+      } catch (err) {
+        alert("Connection failed: " + err.message);
+        console.error(err);
+      }
+    }
+
+    async function loadGraphData() {
+      const session = driver.session();
+      try {
+        // Query to fetch all nodes and their relationships
+        const result = await session.run(`
+          MATCH (n)
+          OPTIONAL MATCH (n)-[r]->(m)
+          RETURN n, r, m
+        `);
+
+        const nodeMap = new Map();
+        const edges = [];
+        let paperCount = 0;
+        let conceptCount = 0;
+
+        result.records.forEach(record => {
+          const n = record.get("n");
+          const r = record.get("r");
+          const m = record.get("m");
+
+          if (n) {
+            const nId = n.identity.toString();
+            if (!nodeMap.has(nId)) {
+              nodeMap.set(nId, parseNode(n));
+              if (n.labels.includes("Paper")) paperCount++;
+              if (n.labels.includes("Concept")) conceptCount++;
+            }
+          }
+
+          if (m) {
+            const mId = m.identity.toString();
+            if (!nodeMap.has(mId)) {
+              nodeMap.set(mId, parseNode(m));
+              if (m.labels.includes("Paper")) paperCount++;
+              if (m.labels.includes("Concept")) conceptCount++;
+            }
+          }
+
+          if (r) {
+            edges.push({
+              id: r.identity.toString(),
+              from: r.start.toString(),
+              to: r.end.toString(),
+              label: r.type,
+              font: { strokeWidth: 0, color: "rgba(255,255,255,0.3)", size: 10, face: "Outfit" },
+              arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+              color: { color: "rgba(255, 255, 255, 0.12)", highlight: "rgba(0, 229, 255, 0.4)" }
+            });
+          }
+        });
+
+        // Set counts
+        document.getElementById("count-papers").textContent = paperCount;
+        document.getElementById("count-concepts").textContent = conceptCount;
+        document.getElementById("count-relations").textContent = edges.length;
+
+        rawNodes = Array.from(nodeMap.values());
+        rawEdges = edges;
+
+        nodesDataset.clear();
+        nodesDataset.add(rawNodes);
+        edgesDataset.clear();
+        edgesDataset.add(rawEdges);
+
+        drawNetwork();
+
+      } catch (err) {
+        console.error(err);
+        alert("Error loading graph data: " + err.message);
+      } finally {
+        await session.close();
+      }
+    }
+
+    function parseNode(node) {
+      const id = node.identity.toString();
+      const labels = node.labels;
+      const label = labels[0] || "Unknown";
+      const props = node.properties;
+      
+      let title = props.name || props.title || "Untitled";
+      let color = "#fff";
+      let shape = "dot";
+      let size = 15;
+
+      // Classify node types and assign sleek aesthetic variables
+      if (labels.includes("Paper")) {
+        color = "var(--color-paper)";
+        shape = "dot";
+        size = 28;
+      } else if (labels.includes("Concept")) {
+        color = "var(--color-concept)";
+        shape = "dot";
+        size = 18;
+      } else if (labels.includes("Theorem")) {
+        color = "var(--color-theorem)";
+        shape = "diamond";
+        size = 14;
+      } else if (labels.includes("Algorithm")) {
+        color = "var(--color-algorithm)";
+        shape = "triangle";
+        size = 14;
+      } else if (labels.includes("CodeSnippet")) {
+        color = "var(--color-code)";
+        shape = "square";
+        size = 14;
+      } else if (labels.includes("Diagram")) {
+        color = "var(--color-diagram)";
+        shape = "hexagon";
+        size = 14;
+      }
+
+      return {
+        id: id,
+        label: title.length > 20 ? title.substring(0, 18) + "..." : title,
+        title: title, // full title for tooltip
+        shape: shape,
+        size: size,
+        color: {
+          background: "rgba(9, 13, 22, 0.9)",
+          border: color,
+          highlight: { background: "rgba(0, 229, 255, 0.2)", border: "var(--color-paper)" }
+        },
+        borderWidth: 2,
+        font: { color: "#e2e8f0", size: 12, face: "Outfit", strokeWidth: 0 },
+        properties: props,
+        type: label
+      };
+    }
+
+    function drawNetwork() {
+      const container = document.getElementById("graph-network");
+      const data = {
+        nodes: nodesDataset,
+        edges: edgesDataset
+      };
+
+      const options = {
+        nodes: {
+          borderWidth: 2,
+          shadow: true
+        },
+        edges: {
+          width: 1.5,
+          smooth: {
+            type: "continuous",
+            forceDirection: "none"
+          }
+        },
+        physics: {
+          solver: "forceAtlas2Based",
+          forceAtlas2Based: {
+            gravitationalConstant: -50,
+            centralGravity: 0.01,
+            springLength: 90,
+            springConstant: 0.08
+          },
+          stabilization: {
+            iterations: 150,
+            updateInterval: 25
+          }
+        },
+        interaction: {
+          hover: true,
+          tooltipDelay: 200
+        }
+      };
+
+      network = new vis.Network(container, data, options);
+
+      // On select, open drawer and display properties
+      network.on("selectNode", function (params) {
+        if (params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          const node = nodesDataset.get(nodeId);
+          showNodeDetails(node);
+        }
+      });
+
+      network.on("deselectNode", function () {
+        closeDrawer();
+      });
+    }
+
+    function showNodeDetails(node) {
+      const drawer = document.getElementById("drawer");
+      const title = document.getElementById("drawer-node-name");
+      const type = document.getElementById("drawer-node-type");
+      const content = document.getElementById("drawer-node-content");
+
+      title.textContent = node.properties.name || node.properties.title || "Untitled";
+      type.textContent = node.type;
+      
+      // Color title based on type
+      let typeColor = "var(--color-concept)";
+      if (node.type === "Paper") typeColor = "var(--color-paper)";
+      else if (node.type === "Theorem") typeColor = "var(--color-theorem)";
+      else if (node.type === "Algorithm") typeColor = "var(--color-algorithm)";
+      else if (node.type === "CodeSnippet") typeColor = "var(--color-code)";
+      else if (node.type === "Diagram") typeColor = "var(--color-diagram)";
+      
+      type.style.color = typeColor;
+
+      let html = "";
+      const props = node.properties;
+
+      if (node.type === "Paper") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="info"></i>Overview</h3>
+            <p><strong>Hash:</strong> ${props.paper_hash || "N/A"}</p>
+            <p><strong>Page Count:</strong> ${props.page_count || 0}</p>
+            <p><strong>Strategy:</strong> ${props.chunk_strategy || "N/A"}</p>
+            <p><strong>Processed:</strong> ${props.processed_at || "N/A"}</p>
+          </div>
+          ${props.motivation ? `
+            <div class="details-card">
+              <h3><i data-lucide="sparkles"></i>Motivation & Problem Statement</h3>
+              <p>${props.motivation}</p>
+            </div>
+          ` : ""}
+          ${props.methodology ? `
+            <div class="details-card">
+              <h3><i data-lucide="layers"></i>Core Methodology</h3>
+              <p>${props.methodology}</p>
+            </div>
+          ` : ""}
+          ${props.contributions ? `
+            <div class="details-card">
+              <h3><i data-lucide="award"></i>Key Contributions</h3>
+              <p>${props.contributions}</p>
+            </div>
+          ` : ""}
+          ${props.limitations ? `
+            <div class="details-card">
+              <h3><i data-lucide="alert-triangle"></i>Limitations</h3>
+              <p>${props.limitations}</p>
+            </div>
+          ` : ""}
+          ${props.significance ? `
+            <div class="details-card">
+              <h3><i data-lucide="trending-up"></i>Significance</h3>
+              <p>${props.significance}</p>
+            </div>
+          ` : ""}
+          ${props.extras ? `
+            <div class="details-card">
+              <h3><i data-lucide="lightbulb"></i>Critical Analysis / Extras</h3>
+              <p>${props.extras}</p>
+            </div>
+          ` : ""}
+        `;
+      } else if (node.type === "Concept") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="help-circle"></i>Core Definition</h3>
+            <p>${props.definition || "No definition available."}</p>
+          </div>
+        `;
+      } else if (node.type === "Theorem") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="compass"></i>Theorem/Proposition Statement</h3>
+            <p>${props.statement || "No statement details available."}</p>
+          </div>
+        `;
+      } else if (node.type === "Algorithm") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="code-2"></i>Formal Pseudocode</h3>
+            <div class="code-container">${escapeHtml(props.pseudocode) || "No code loaded."}</div>
+          </div>
+          ${props.invariant ? `
+            <div class="details-card">
+              <h3><i data-lucide="activity"></i>Loop Invariant</h3>
+              <p>${props.invariant}</p>
+            </div>
+          ` : ""}
+        `;
+      } else if (node.type === "CodeSnippet") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="terminal"></i>C++ Implementation Examples</h3>
+            <div class="code-container" style="color: #6ee7b7;">${escapeHtml(props.code) || "No code loaded."}</div>
+          </div>
+        `;
+      } else if (node.type === "Diagram") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="image"></i>Graphviz Diagram Rendering</h3>
+            <div class="diagram-container">
+              <img src="/${props.svg_path}" alt="${props.title}" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22><text y=%2250%22 x=%2210%22 fill=%22red%22>Diagram SVG not found</text></svg>'">
+            </div>
+          </div>
+          <div class="details-card">
+            <h3><i data-lucide="align-left"></i>DOT Source</h3>
+            <div class="code-container" style="color: #93c5fd; font-size: 11px;">${escapeHtml(props.dot_src) || "No source loaded."}</div>
+          </div>
+        `;
+      }
+
+      content.innerHTML = html;
+      lucide.createIcons(); // Initialize icons in drawer
+      drawer.classList.add("open");
+    }
+
+    function closeDrawer() {
+      document.getElementById("drawer").classList.remove("open");
+    }
+
+    function togglePhysics() {
+      isPhysicsActive = !isPhysicsActive;
+      network.setOptions({ physics: { enabled: isPhysicsActive } });
+      
+      const btn = document.getElementById("physics-btn");
+      if (isPhysicsActive) {
+        btn.innerHTML = `<i data-lucide="pause" style="width: 14px; height: 14px;"></i>Pause Layout`;
+      } else {
+        btn.innerHTML = `<i data-lucide="play" style="width: 14px; height: 14px;"></i>Resume Layout`;
+      }
+      lucide.createIcons();
+    }
+
+    function filterGraph() {
+      const q = document.getElementById("search-input").value.toLowerCase();
+      if (!q) {
+        nodesDataset.update(rawNodes);
+        return;
+      }
+
+      const filtered = rawNodes.map(node => {
+        const match = node.title.toLowerCase().includes(q) || 
+                      (node.properties.definition && node.properties.definition.toLowerCase().includes(q)) ||
+                      (node.properties.motivation && node.properties.motivation.toLowerCase().includes(q));
+        return {
+          id: node.id,
+          color: {
+            background: match ? "rgba(9, 13, 22, 0.9)" : "rgba(15, 23, 42, 0.1)",
+            border: match ? node.color.border : "rgba(255,255,255,0.02)"
+          },
+          font: { color: match ? "#e2e8f0" : "rgba(255,255,255,0.08)" }
+        };
+      });
+
+      nodesDataset.update(filtered);
+    }
+
+    function escapeHtml(text) {
+      if (!text) return "";
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
