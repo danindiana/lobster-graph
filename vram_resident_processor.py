@@ -115,11 +115,17 @@ CODE_OLLAMA_URL = os.environ.get("CODE_OLLAMA_URL", "http://localhost:11434")
 KNOWN_GOOD_MODELS: List[tuple] = [
     ("deepseek-r1:14b-qwen-distill-q8_0", "~15 GB", "xl_reason — Q8 concurrent default", True),
     ("deepseek-r1:14b",                    "~9 GB",  "single — reliable, 9 GB",         False),
+    ("nemotron-terminal-14b:latest",       "~9 GB",  "single — reliable, 9 GB",         False),
+    ("Maoyue/AceReason-Nemotron-14B-Q4_K_M:latest", "~9 GB", "single — reasoning, 9 GB", False),
+    ("ministral-3:14b",                    "~9 GB",  "single — reliable, 9 GB",         False),
+    ("qwen2.5:7b-instruct-q8_0",           "~8 GB",  "single — Q8 fidelity, 8 GB",      False),
     ("deepseek-r1:8b",                     "~5 GB",  "fast — quick fallback",           False),
+    ("ministral-3:latest",                 "~6 GB",  "fast — quick fallback",           False),
+    ("granite4.1:8b",                      "~5 GB",  "fast — general, 5 GB",            False),
     ("nemotron-3-nano-30b-small:latest",   "~24 GB", "xl_quality — dual-GPU (swap)",    False),
-    ("deepseek-r1:32b",                    "~19 GB", "xl_reason — dual-GPU (swap)",    False),
-    ("devstral:24b",                       "~14 GB", "mid_code — code + text",          False),
+    ("deepseek-r1:32b",                    "~19 GB", "xl_reason — dual-GPU (swap)",     False),
     ("qwen3.6:35b",                        "~23 GB", "xl — dual-GPU (swap)",            False),
+    ("gemma4:31b-it-q4_K_M",               "~19 GB", "xl — vision/text (swap)",         False),
     ("gpt-oss:20b",                        "~13 GB", "text-only alternative",           False),
 ]
 
@@ -127,10 +133,11 @@ KNOWN_GOOD_MODELS: List[tuple] = [
 KNOWN_GOOD_CODE_MODELS: List[tuple] = [
     ("qwen2.5-coder:14b",           "~9 GB",  "xl_code — Q6/Q8 concurrent default",   True),
     ("deepseek-coder-v2:16b",       "~9 GB",  "single — fast alternative",            False),
+    ("qwen2.5-coder:14b-base-q6_K", "~12 GB", "single — Q6 fidelity",                False),
+    ("deepseek-coder:6.7b-instruct-q8_0", "~7 GB", "fast — Q8 coding, 7 GB",            False),
     ("qwen2.5-coder:7b",            "~5 GB",  "fast — quick fallback",                False),
     ("qwen3-coder:30b",              "~18 GB", "xl_code — dual-GPU (swap)",            False),
     ("devstral:24b",                 "~14 GB", "mid_code — strong code, lower VRAM",   False),
-    ("qwen2.5-coder:14b-base-q6_K", "~12 GB", "single — Q6 fidelity",                False),
 ]
 
 
