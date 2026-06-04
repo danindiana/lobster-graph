@@ -53,6 +53,8 @@ except ImportError:
 # GRACEFUL SHUTDOWN
 # ══════════════════════════════════════════════════════════════════════════════
 _shutdown = threading.Event()
+_sync_lock = threading.Lock()
+
 
 
 def _install_signal_handlers() -> None:
@@ -1020,6 +1022,50 @@ def health_check_openclaw():
         return False
 
 
+def _sync_to_neo4j(processed_dir: Optional[str] = None):
+    """Checks if Neo4j is listening on Port 7687 and runs the importer script to auto-sync."""
+    if not _sync_lock.acquire(blocking=False):
+        return
+    try:
+        import socket
+        import subprocess
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex(('localhost', 7687)) == 0:
+                print("\n  🔄 Syncing processed results to Neo4j graph database...")
+                cmd = [sys.executable, "neo4j_viz/neo4j_importer.py"]
+                if processed_dir:
+                    cmd.append(processed_dir)
+                subprocess.run(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                print("  ✅ Neo4j database sync complete!")
+    except Exception:
+        pass
+    finally:
+        _sync_lock.release()
+
+
+def _periodic_sync_worker(processed_dir: Optional[str] = None, interval: int = 300):
+    """Background thread worker to periodically trigger database synchronization."""
+    # Sleep 15 seconds initially to let the first paper get some processing headstart
+    for _ in range(15):
+        if _shutdown.is_set():
+            return
+        time.sleep(1)
+        
+    while not _shutdown.is_set():
+        _sync_to_neo4j(processed_dir)
+        
+        # Non-blocking sleep responsive to shutdown event
+        for _ in range(interval):
+            if _shutdown.is_set():
+                break
+            time.sleep(1)
+
+
 def main():
     ap = argparse.ArgumentParser(
         prog="paper_processor",
@@ -1194,6 +1240,14 @@ def main():
         verbose      = args.verbose,
     )
 
+    # ── Spawn periodic database sync background thread ───────────────────────
+    sync_thread = threading.Thread(
+        target=_periodic_sync_worker,
+        args=(str(papers_dir / "_processed"), 300),  # sync every 5 minutes / 300 seconds
+        daemon=True
+    )
+    sync_thread.start()
+
     # ── Process ────────────────────────────────────────────────────────────
     errors: List[str] = []
 
@@ -1240,6 +1294,9 @@ def main():
                 if "timed out" in str(exc).lower():
                     print("  🔄  Timeout detected — restarting Ollama to unblock next paper …")
                     _ollama_restart_service()
+
+    # Auto-sync results to Neo4j Graph DB if it is running
+    _sync_to_neo4j(str(papers_dir / "_processed"))
 
     # ── Summary ────────────────────────────────────────────────────────────
     print(f"\n{'═'*64}")

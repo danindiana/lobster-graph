@@ -114,6 +114,10 @@ def parse_cpp_examples(content: str) -> list:
     return examples
 
 def main():
+    import sys
+    global PROCESSED_DIR
+    if len(sys.argv) > 1:
+        PROCESSED_DIR = Path(sys.argv[1])
     print(f"🔗 Connecting to Neo4j at {NEO4J_URI}...")
     try:
         driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))

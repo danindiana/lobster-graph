@@ -11,6 +11,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 8585
 PROCESSED_PATH = "/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed"
+if len(sys.argv) > 1:
+    PROCESSED_PATH = sys.argv[1]
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class DashboardHandler(SimpleHTTPRequestHandler):

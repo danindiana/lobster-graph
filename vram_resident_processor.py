@@ -1045,7 +1045,7 @@ def health_check_openclaw():
         return False
 
 
-def _sync_to_neo4j():
+def _sync_to_neo4j(processed_dir: Optional[str] = None):
     """Checks if Neo4j is listening on Port 7687 and runs the importer script to auto-sync."""
     if not _sync_lock.acquire(blocking=False):
         return
@@ -1056,8 +1056,11 @@ def _sync_to_neo4j():
             s.settimeout(0.5)
             if s.connect_ex(('localhost', 7687)) == 0:
                 print("\n  🔄 Syncing processed results to Neo4j graph database...")
+                cmd = [sys.executable, "neo4j_viz/neo4j_importer.py"]
+                if processed_dir:
+                    cmd.append(processed_dir)
                 subprocess.run(
-                    [sys.executable, "neo4j_viz/neo4j_importer.py"],
+                    cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
@@ -1068,7 +1071,7 @@ def _sync_to_neo4j():
         _sync_lock.release()
 
 
-def _periodic_sync_worker(interval: int = 300):
+def _periodic_sync_worker(processed_dir: Optional[str] = None, interval: int = 300):
     """Background thread worker to periodically trigger database synchronization."""
     # Sleep 15 seconds initially to let the first paper get some processing headstart
     for _ in range(15):
@@ -1077,7 +1080,7 @@ def _periodic_sync_worker(interval: int = 300):
         time.sleep(1)
         
     while not _shutdown.is_set():
-        _sync_to_neo4j()
+        _sync_to_neo4j(processed_dir)
         
         # Non-blocking sleep responsive to shutdown event
         for _ in range(interval):
@@ -1305,7 +1308,7 @@ def main():
     # ── Spawn periodic database sync background thread ───────────────────────
     sync_thread = threading.Thread(
         target=_periodic_sync_worker,
-        args=(300,),  # sync every 5 minutes / 300 seconds
+        args=(str(papers_dir / "_processed"), 300),  # sync every 5 minutes / 300 seconds
         daemon=True
     )
     sync_thread.start()
@@ -1358,7 +1361,7 @@ def main():
                     _ollama_restart_service(PRIMARY_OLLAMA_URL)
 
     # Auto-sync results to Neo4j Graph DB if it is running
-    _sync_to_neo4j()
+    _sync_to_neo4j(str(papers_dir / "_processed"))
 
     # ── Summary ────────────────────────────────────────────────────────────
     print(f"\n{'═'*64}")
