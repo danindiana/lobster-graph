@@ -451,16 +451,22 @@ class Backend:
                     raise RuntimeError(f"Ollama HTTP {r.status_code} (model={model}): {body}")
 
                 full_response = []
-                for line in r.iter_lines():
-                    if _shutdown.is_set():
-                        r.close()
-                        raise _ShutdownRequested()
-                    if line:
-                        data = json.loads(line)
-                        if "response" in data:
-                            full_response.append(data["response"])
-                        if data.get("done"):
-                            break
+                with open("/tmp/ollama_tokens.log", "a", encoding="utf-8") as tf:
+                    tf.write(f"\n\n{'='*80}\n[MODEL: {model}] Generating on {self.url} ...\n{'='*80}\n")
+                    tf.flush()
+                    for line in r.iter_lines():
+                        if _shutdown.is_set():
+                            r.close()
+                            raise _ShutdownRequested()
+                        if line:
+                            data = json.loads(line)
+                            if "response" in data:
+                                token = data["response"]
+                                full_response.append(token)
+                                tf.write(token)
+                                tf.flush()
+                            if data.get("done"):
+                                break
                 return "".join(full_response).strip()
 
             except requests.exceptions.ConnectionError:
@@ -1230,6 +1236,19 @@ def main():
     print(f"  Papers       : {len(pdfs)}")
     print(f"  Output       : {papers_dir / '_processed'}")
     print()
+
+    # ── Spawn Alacritty terminal for live token stream ───────────────────────
+    try:
+        token_log = Path("/tmp/ollama_tokens.log")
+        token_log.write_text("🦞 OPENCLAW DUAL-GPU PIPELINE - LIVE TOKEN OUTPUT\n", encoding="utf-8")
+        subprocess.Popen(
+            ["alacritty", "-t", "Ollama Live Token Stream", "-e", "tail", "-f", "/tmp/ollama_tokens.log"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        print("  🖥️   Spawning Alacritty terminal instance for live token streaming...")
+    except Exception as e:
+        print(f"  ⚠️   Could not spawn Alacritty instance: {e}")
 
     processor = PaperProcessor(
         papers_dir        = papers_dir,
