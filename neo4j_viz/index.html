@@ -596,13 +596,15 @@
           <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
           <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON</button>
           <button class="btn" id="stabilize-btn" onclick="toggleStabilization()"><i data-lucide="waves" style="width: 14px; height: 14px;"></i>Stabilize: OFF</button>
-          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
         </div>
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save State</button>
           <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load State</button>
-          <button class="btn" onclick="clearDatabase()" style="color: #ff4444; border-color: rgba(255,68,68,0.3);"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>Clear DB</button>
+          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
           <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" onclick="clearDatabase()" style="color: #ff4444; border-color: rgba(255,68,68,0.3); width: 100%;"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>Clear DB</button>
         </div>
         <div class="legend">
           <div class="legend-item"><span class="legend-dot" style="color: var(--color-paper); background: var(--color-paper)"></span>Paper Node</div>
