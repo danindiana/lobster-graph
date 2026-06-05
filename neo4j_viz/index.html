@@ -595,6 +595,7 @@
         <div class="control-row">
           <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
           <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON</button>
+          <button class="btn" id="stabilize-btn" onclick="toggleStabilization()"><i data-lucide="waves" style="width: 14px; height: 14px;"></i>Stabilize: OFF</button>
           <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
         </div>
         <div class="control-row" style="margin-top: 8px;">
@@ -641,12 +642,13 @@
     document.getElementById("db-url").value = "bolt://" + window.location.hostname + ":7687";
 
     let driver = null;
-    let network = null;
     let nodesDataset = new vis.DataSet([]);
     let edgesDataset = new vis.DataSet([]);
+    let network = null;
     let rawNodes = [];
     let rawEdges = [];
     let isPhysicsActive = true;
+    let isStabilizationEnabled = false;
 
     async function connectAndInitialize() {
       const url = document.getElementById("db-url").value;
@@ -1078,6 +1080,21 @@
         btn.innerHTML = `<i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON`;
       } else {
         btn.innerHTML = `<i data-lucide="zap-off" style="width: 14px; height: 14px;"></i>Physics: OFF`;
+      }
+      lucide.createIcons();
+    }
+
+    function toggleStabilization() {
+      isStabilizationEnabled = !isStabilizationEnabled;
+      const btn = document.getElementById("stabilize-btn");
+      
+      if (isStabilizationEnabled) {
+        network.setOptions({ physics: { stabilization: { iterations: 150, updateInterval: 25 } } });
+        btn.innerHTML = `<i data-lucide="anchor" style="width: 14px; height: 14px;"></i>Stabilize: ON`;
+        if (isPhysicsActive) network.stabilize();
+      } else {
+        network.setOptions({ physics: { stabilization: false } });
+        btn.innerHTML = `<i data-lucide="waves" style="width: 14px; height: 14px;"></i>Stabilize: OFF`;
       }
       lucide.createIcons();
     }
