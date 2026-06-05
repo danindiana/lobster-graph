@@ -1018,7 +1018,8 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `lobster_graph_state_${new Date().toISOString().slice(0,10)}.json`;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      a.download = `lobster_graph_state_${timestamp}.json`;
       a.click();
       URL.revokeObjectURL(url);
     }
