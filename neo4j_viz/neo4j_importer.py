@@ -13,7 +13,18 @@ from neo4j import GraphDatabase
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "password123")
-PROCESSED_DIR = Path("/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed")
+import sys
+PROCESSED_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed")
+
+def extract_json_block(text: str) -> dict:
+    """Attempts to find and parse a fenced JSON block from the text."""
+    matches = list(re.finditer(r"```json\s*\n(.*?)\n```", text, re.DOTALL | re.IGNORECASE))
+    if matches:
+        try:
+            return json.loads(matches[-1].group(1))
+        except json.JSONDecodeError:
+            pass
+    return {}
 
 def clean_markdown_headers(content: str) -> dict:
     """Splits markdown content by H2 headers and returns a dict mapping headers to text."""
@@ -224,52 +235,59 @@ def main():
         logic_file = path / "02_symbolic_logic.md"
         if logic_file.exists():
             logic_content = logic_file.read_text(encoding="utf-8")
-            logic_sections = clean_markdown_headers(logic_content)
             
-            # Extract concepts (definitions)
-            if "1. Core Definitions & Notation" in logic_sections:
-                defs = parse_logic_definitions(logic_sections["1. Core Definitions & Notation"])
-                with driver.session() as session:
-                    for d in defs:
-                        session.run("""
-                            MATCH (p:Paper {name: $paper_name})
-                            MERGE (c:Concept {name: $name})
-                            ON CREATE SET c.definition = $definition
-                            CREATE (p)-[:DEFINES]->(c)
-                        """, {"paper_name": paper_name, "name": d["name"], "definition": d["definition"]})
-                print(f"  🔣 Imported {len(defs)} Core Concepts")
+            logic_json = extract_json_block(logic_content)
+            if logic_json and ("concepts" in logic_json or "theorems" in logic_json or "algorithms" in logic_json):
+                defs = logic_json.get("concepts", [])
+                theorems = logic_json.get("theorems", [])
+                algs = logic_json.get("algorithms", [])
+            else:
+                logic_sections = clean_markdown_headers(logic_content)
+                defs = parse_logic_definitions(logic_sections.get("1. Core Definitions & Notation", ""))
+                theorems = parse_logic_theorems(logic_sections.get("2. Key Theorems & Propositions", ""))
+                algs = parse_logic_algorithms(logic_sections.get("3. Algorithm Formalisation", ""))
+            
+            with driver.session() as session:
+                for d in defs:
+                    session.run("""
+                        MATCH (p:Paper {name: $paper_name})
+                        MERGE (c:Concept {name: $name})
+                        ON CREATE SET c.definition = $definition
+                        CREATE (p)-[:DEFINES]->(c)
+                    """, {"paper_name": paper_name, "name": d.get("name", ""), "definition": d.get("description", d.get("definition", ""))})
+            print(f"  🔣 Imported {len(defs)} Core Concepts")
 
-            # Extract theorems
-            if "2. Key Theorems & Propositions" in logic_sections:
-                theorems = parse_logic_theorems(logic_sections["2. Key Theorems & Propositions"])
-                with driver.session() as session:
-                    for t in theorems:
-                        session.run("""
-                            MATCH (p:Paper {name: $paper_name})
-                            MERGE (t:Theorem {name: $name})
-                            SET t.statement = $statement
-                            MERGE (p)-[:PROPOSES]->(t)
-                        """, {"paper_name": paper_name, "name": t["name"], "statement": t["statement"]})
-                print(f"  📐 Imported {len(theorems)} Theorems")
+            with driver.session() as session:
+                for t in theorems:
+                    session.run("""
+                        MATCH (p:Paper {name: $paper_name})
+                        MERGE (t:Theorem {name: $name})
+                        SET t.statement = $statement
+                        MERGE (p)-[:PROPOSES]->(t)
+                    """, {"paper_name": paper_name, "name": t.get("name", ""), "statement": t.get("statement", "")})
+            print(f"  📐 Imported {len(theorems)} Theorems")
 
-            # Extract algorithms
-            if "3. Algorithm Formalisation" in logic_sections:
-                algs = parse_logic_algorithms(logic_sections["3. Algorithm Formalisation"])
-                with driver.session() as session:
-                    for a in algs:
-                        session.run("""
-                            MATCH (p:Paper {name: $paper_name})
-                            MERGE (alg:Algorithm {name: $name})
-                            SET alg.pseudocode = $code, alg.invariant = $invariant
-                            MERGE (p)-[:FORMALISES]->(alg)
-                        """, {"paper_name": paper_name, "name": a["name"], "code": a["pseudocode"], "invariant": a["invariant"]})
-                print(f"  🤖 Imported {len(algs)} Algorithms")
+            with driver.session() as session:
+                for a in algs:
+                    session.run("""
+                        MATCH (p:Paper {name: $paper_name})
+                        MERGE (alg:Algorithm {name: $name})
+                        SET alg.pseudocode = $code, alg.invariant = $invariant
+                        MERGE (p)-[:FORMALISES]->(alg)
+                    """, {"paper_name": paper_name, "name": a.get("name", ""), "code": a.get("pseudocode", ""), "invariant": a.get("invariant", "")})
+            print(f"  🤖 Imported {len(algs)} Algorithms")
 
         # 5. Parse C++ Examples
         cpp_file = path / "03_cpp_examples.md"
         if cpp_file.exists():
             cpp_content = cpp_file.read_text(encoding="utf-8")
-            cpp_examples = parse_cpp_examples(cpp_content)
+            
+            cpp_json = extract_json_block(cpp_content)
+            if cpp_json and "examples" in cpp_json:
+                cpp_examples = cpp_json.get("examples", [])
+            else:
+                cpp_examples = parse_cpp_examples(cpp_content)
+                
             with driver.session() as session:
                 for c in cpp_examples:
                     session.run("""
@@ -277,7 +295,7 @@ def main():
                         MERGE (code:CodeSnippet {title: $title})
                         SET code.language = 'cpp', code.code = $code
                         MERGE (p)-[:PROVIDES_CODE]->(code)
-                    """, {"paper_name": paper_name, "title": c["title"], "code": c["code"]})
+                    """, {"paper_name": paper_name, "title": c.get("name", c.get("title", "")), "code": c.get("code", "")})
             print(f"  💻 Imported {len(cpp_examples)} C++ Examples")
 
         # 6. Parse Diagrams (.dot files)

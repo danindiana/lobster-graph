@@ -280,7 +280,17 @@ PROMPTS = {
         State any convergence theorems, loss landscape properties, or PAC-learning bounds.
 
         ## 5. Information-Theoretic View
-        Express the core learning objective using entropy H(·), KL divergence, mutual information I(·;·) where applicable."""),
+        Express the core learning objective using entropy H(·), KL divergence, mutual information I(·;·) where applicable.
+        
+        At the very end of your response, output a fenced JSON block containing all parsed concepts, theorems, and algorithms.
+        Use this exact schema:
+        ```json
+        {
+          "concepts": [{"name": "Concept Name", "description": "Concept Description"}],
+          "theorems": [{"name": "Theorem Name", "statement": "Theorem Statement"}],
+          "algorithms": [{"name": "Algorithm Name", "pseudocode": "Brief pseudocode text", "invariant": "Invariant condition"}]
+        }
+        ```"""),
 
     "cpp": textwrap.dedent("""\
         Refactor the paper's core insights using well-crafted C++ code examples.
@@ -292,7 +302,15 @@ PROMPTS = {
           - Include a main() that exercises each implementation with sample data
           - Prefer STL containers and algorithms; avoid raw owning pointers
           - Show template metaprogramming or concept constraints where they model the paper's abstractions
-          - Add inline comments explaining the mapping from math → code"""),
+          - Add inline comments explaining the mapping from math → code
+          
+        At the very end of your response, output a fenced JSON block containing all C++ examples.
+        Use this exact schema:
+        ```json
+        {
+          "examples": [{"name": "Example Name", "code": "The full C++ code string", "complexity": "Big O string if applicable"}]
+        }
+        ```"""),
 
     "extras": textwrap.dedent("""\
         Provide deep additional analysis beyond what the paper itself claims:
