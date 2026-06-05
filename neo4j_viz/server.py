@@ -52,6 +52,59 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    def do_POST(self):
+        if self.path == "/api/export":
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                body = self.rfile.read(content_length)
+                import json, time, os, zipfile
+                try:
+                    import pandas as pd
+                    data = json.loads(body.decode('utf-8'))
+                    ts = int(time.time())
+                    
+                    nodes_list = []
+                    for n in data.get('nodes', []):
+                        flat = {k: (json.dumps(v) if isinstance(v, (dict, list)) else v) for k,v in n.items()}
+                        nodes_list.append(flat)
+                    edges_list = []
+                    for e in data.get('edges', []):
+                        flat = {k: (json.dumps(v) if isinstance(v, (dict, list)) else v) for k,v in e.items()}
+                        edges_list.append(flat)
+                        
+                    nodes_df = pd.DataFrame(nodes_list)
+                    edges_df = pd.DataFrame(edges_list)
+                    
+                    # Convert to string to prevent mixed-type inference errors in pyarrow
+                    nodes_df = nodes_df.astype(str)
+                    edges_df = edges_df.astype(str)
+                    
+                    nodes_df.to_parquet(f"lobster_nodes_{ts}.parquet")
+                    edges_df.to_parquet(f"lobster_edges_{ts}.parquet")
+                    nodes_df.to_json(f"lobster_nodes_{ts}.jsonl", orient="records", lines=True)
+                    edges_df.to_json(f"lobster_edges_{ts}.jsonl", orient="records", lines=True)
+                    
+                    zip_path = f"lobster_snapshot_{ts}.zip"
+                    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        zipf.write(f"lobster_nodes_{ts}.parquet")
+                        zipf.write(f"lobster_edges_{ts}.parquet")
+                        zipf.write(f"lobster_nodes_{ts}.jsonl")
+                        zipf.write(f"lobster_edges_{ts}.jsonl")
+                        
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"url": f"/{zip_path}"}).encode())
+                    return
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+                    return
+        
+        self.send_response(404)
+        self.end_headers()
+
 def get_lan_ip():
     """Helper to query the local hostname to get the actual LAN IP."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

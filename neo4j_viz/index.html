@@ -1039,28 +1039,66 @@
       document.getElementById("drawer").classList.remove("open");
     }
 
-    function saveGraph() {
+    async function saveGraph() {
       if (!network || rawNodes.length === 0) {
         alert("No graph data to save!");
         return;
       }
       
-      const positions = network.getPositions();
-      const exportNodes = rawNodes.map(n => ({
-        ...n,
-        x: positions[n.id]?.x,
-        y: positions[n.id]?.y
-      }));
+      const btn = document.querySelector('button[onclick="saveGraph()"]');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = `<i data-lucide="loader" class="spin" style="width: 14px; height: 14px; animation: spin 1s linear infinite;"></i>Exporting...`;
       
-      const data = JSON.stringify({ nodes: exportNodes, edges: rawEdges }, null, 2);
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      a.download = `lobster_graph_state_${timestamp}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      try {
+          const positions = network.getPositions();
+          const exportNodes = rawNodes.map(n => ({
+            ...n,
+            x: positions[n.id]?.x,
+            y: positions[n.id]?.y
+          }));
+          
+          const payload = { nodes: exportNodes, edges: rawEdges };
+          
+          // Send to backend to generate Parquet and JSONL zip
+          const response = await fetch('/api/export', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+          
+          if (!response.ok) throw new Error("Backend export failed");
+          
+          const result = await response.json();
+          if (result.url) {
+              const a = document.createElement('a');
+              a.href = result.url;
+              a.download = result.url.split('/').pop();
+              a.click();
+          } else {
+              throw new Error("No URL returned");
+          }
+      } catch(err) {
+          console.warn("Backend export failed, falling back to local JSON download:", err);
+          // Fallback to purely local JSON save
+          const positions = network.getPositions();
+          const exportNodes = rawNodes.map(n => ({
+            ...n,
+            x: positions[n.id]?.x,
+            y: positions[n.id]?.y
+          }));
+          const data = JSON.stringify({ nodes: exportNodes, edges: rawEdges }, null, 2);
+          const blob = new Blob([data], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          a.download = `lobster_graph_state_${timestamp}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+      } finally {
+          btn.innerHTML = originalText;
+          lucide.createIcons();
+      }
     }
 
     function loadGraph(event) {
