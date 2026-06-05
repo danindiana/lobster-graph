@@ -1646,23 +1646,39 @@
         };
       });
 
-      nodesDataset.update(updatedNodes);
+      const nodesToUpdate = [];
+      updatedNodes.forEach(un => {
+          const current = nodesDataset.get(un.id);
+          if (!current || 
+              current.hidden !== un.hidden || 
+              current.size !== un.size || 
+              !current.color || current.color.background !== un.color.background ||
+              !current.shadow || current.shadow.enabled !== un.shadow.enabled) {
+              nodesToUpdate.push(un);
+          }
+      });
+      if (nodesToUpdate.length > 0) nodesDataset.update(nodesToUpdate);
       
+      const edgesToUpdate = [];
       if (isTimeTravelEnabled && allowedNodes) {
-          const updatedEdges = rawEdges.map(e => ({
-              id: e.id,
-              hidden: !(allowedNodes.has(e.from) && allowedNodes.has(e.to))
-          }));
-          edgesDataset.update(updatedEdges);
+          rawEdges.forEach(e => {
+              const isHidden = !(allowedNodes.has(e.from) && allowedNodes.has(e.to));
+              const current = edgesDataset.get(e.id);
+              if (!current || current.hidden !== isHidden) {
+                  edgesToUpdate.push({ id: e.id, hidden: isHidden });
+              }
+          });
       } else {
-          // If not time travelling, we still need to hide edges where either node is hidden
           const hiddenNodeSet = new Set(updatedNodes.filter(n => n.hidden).map(n => n.id));
-          const updatedEdges = rawEdges.map(e => ({
-              id: e.id,
-              hidden: hiddenNodeSet.has(e.from) || hiddenNodeSet.has(e.to)
-          }));
-          edgesDataset.update(updatedEdges);
+          rawEdges.forEach(e => {
+              const isHidden = hiddenNodeSet.has(e.from) || hiddenNodeSet.has(e.to);
+              const current = edgesDataset.get(e.id);
+              if (!current || current.hidden !== isHidden) {
+                  edgesToUpdate.push({ id: e.id, hidden: isHidden });
+              }
+          });
       }
+      if (edgesToUpdate.length > 0) edgesDataset.update(edgesToUpdate);
     }
 
     // Helper to darken hex colors for light mode contrast
