@@ -603,6 +603,14 @@
           <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
           <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
         </div>
+        <div class="control-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
+          <button class="btn" id="focus-btn" onclick="toggleFocusMode()"><i data-lucide="target" style="width: 14px; height: 14px;"></i>Focus: OFF</button>
+          <button class="btn" id="hubs-btn" onclick="toggleHubsMode()"><i data-lucide="share-2" style="width: 14px; height: 14px;"></i>Hubs: OFF</button>
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" id="tree-btn" onclick="toggleTreeMode()"><i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF</button>
+          <button class="btn" id="radar-btn" onclick="toggleRadarMode()"><i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF</button>
+        </div>
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" onclick="clearDatabase()" style="color: #ff4444; border-color: rgba(255,68,68,0.3); width: 100%;"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>Clear DB</button>
         </div>
@@ -616,6 +624,9 @@
         </div>
       </div>
     </div>
+
+    <!-- Minimap / Radar -->
+    <div id="minimap-container" style="display: none; position: absolute; bottom: 20px; right: 20px; width: 250px; height: 250px; background: rgba(9, 13, 22, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; z-index: 1000; box-shadow: 0 4px 16px rgba(0,0,0,0.6);"></div>
 
     <!-- Inspector Drawer -->
     <div id="drawer" class="details-drawer">
@@ -651,6 +662,12 @@
     let rawEdges = [];
     let isPhysicsActive = true;
     let isStabilizationEnabled = false;
+    let isFocusModeEnabled = false;
+    let isHubsModeEnabled = false;
+    let isTreeModeEnabled = false;
+    let isRadarModeEnabled = false;
+    let minimapNetwork = null;
+    let selectedNodeIds = [];
 
     async function connectAndInitialize() {
       const url = document.getElementById("db-url").value;
@@ -841,6 +858,8 @@
 
       // On select, open drawer and display properties
       network.on("selectNode", function (params) {
+        selectedNodeIds = params.nodes;
+        if (isFocusModeEnabled) filterGraph();
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
           const node = nodesDataset.get(nodeId);
@@ -849,6 +868,8 @@
       });
 
       network.on("deselectNode", function () {
+        selectedNodeIds = [];
+        if (isFocusModeEnabled) filterGraph();
         closeDrawer();
       });
     }
@@ -1085,6 +1106,65 @@
       }
       lucide.createIcons();
     }
+    
+    function toggleFocusMode() {
+      isFocusModeEnabled = !isFocusModeEnabled;
+      const btn = document.getElementById("focus-btn");
+      btn.innerHTML = `<i data-lucide="target" style="width: 14px; height: 14px;"></i>Focus: ${isFocusModeEnabled ? "ON" : "OFF"}`;
+      lucide.createIcons();
+      filterGraph();
+    }
+
+    function toggleHubsMode() {
+      isHubsModeEnabled = !isHubsModeEnabled;
+      const btn = document.getElementById("hubs-btn");
+      btn.innerHTML = `<i data-lucide="share-2" style="width: 14px; height: 14px;"></i>Hubs: ${isHubsModeEnabled ? "ON" : "OFF"}`;
+      lucide.createIcons();
+      filterGraph();
+    }
+
+    function toggleTreeMode() {
+      isTreeModeEnabled = !isTreeModeEnabled;
+      const btn = document.getElementById("tree-btn");
+      if (isTreeModeEnabled) {
+        network.setOptions({ layout: { hierarchical: { enabled: true, sortMethod: 'directed', nodeSpacing: 150, treeSpacing: 200 } } });
+        btn.innerHTML = `<i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: ON`;
+      } else {
+        network.setOptions({ layout: { hierarchical: { enabled: false } } });
+        btn.innerHTML = `<i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF`;
+      }
+      lucide.createIcons();
+    }
+
+    function toggleRadarMode() {
+      isRadarModeEnabled = !isRadarModeEnabled;
+      const btn = document.getElementById("radar-btn");
+      const container = document.getElementById("minimap-container");
+      
+      if (isRadarModeEnabled) {
+        container.style.display = "block";
+        btn.innerHTML = `<i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: ON`;
+        
+        if (!minimapNetwork && network) {
+          minimapNetwork = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, {
+            physics: false,
+            interaction: { dragNodes: false, dragView: false, zoomView: false },
+            nodes: { font: { size: 0 } },
+            edges: { color: "rgba(255,255,255,0.05)", width: 1 }
+          });
+          
+          network.on("afterDrawing", function() {
+            if (isRadarModeEnabled && minimapNetwork) {
+              minimapNetwork.fit({ animation: false });
+            }
+          });
+        }
+      } else {
+        container.style.display = "none";
+        btn.innerHTML = `<i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF`;
+      }
+      lucide.createIcons();
+    }
 
     function toggleStabilization() {
       isStabilizationEnabled = !isStabilizationEnabled;
@@ -1127,14 +1207,32 @@
     function filterGraph() {
       const q = document.getElementById("search-input").value.toLowerCase();
       const isLight = document.body.classList.contains('light-mode');
+      
+      let degrees = {};
+      if (isHubsModeEnabled) {
+         rawEdges.forEach(e => {
+            degrees[e.from] = (degrees[e.from] || 0) + 1;
+            degrees[e.to] = (degrees[e.to] || 0) + 1;
+         });
+      }
 
       const updatedNodes = rawNodes.map(node => {
-        const match = !q || node.title.toLowerCase().includes(q) || 
+        let match = !q || node.title.toLowerCase().includes(q) || 
                       (node.properties.definition && node.properties.definition.toLowerCase().includes(q)) ||
                       (node.properties.motivation && node.properties.motivation.toLowerCase().includes(q));
                       
+        if (isFocusModeEnabled && selectedNodeIds.length > 0) {
+            const isSelected = selectedNodeIds.includes(node.id);
+            const isNeighbor = network ? network.getConnectedNodes(selectedNodeIds[0]).includes(node.id) : false;
+            if (!isSelected && !isNeighbor) match = false;
+        }
+        
+        let baseSize = node.size || 15;
+        let finalSize = isHubsModeEnabled ? baseSize + (degrees[node.id] || 0) * 1.5 : baseSize;
+        
         return {
           id: node.id,
+          size: finalSize,
           color: {
             background: match ? (isLight ? "#ffffff" : "rgba(9, 13, 22, 0.9)") : (isLight ? "rgba(0,0,0,0.05)" : "rgba(15, 23, 42, 0.1)"),
             border: match ? (isLight ? darkenColor(node.color.border, 20) : node.color.border) : (isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.02)")
