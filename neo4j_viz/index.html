@@ -651,9 +651,9 @@
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; margin-top: 12px;">
           <span style="font-size: 11px; color: var(--text-muted);">MAX NODES</span>
-          <span id="max-nodes-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">ALL</span>
+          <span id="max-nodes-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">300</span>
         </div>
-        <input type="range" id="max-nodes-slider" min="50" max="3000" step="50" value="3000" style="width: 100%;" class="slider" oninput="document.getElementById('max-nodes-val').innerText=this.value == 3000 ? 'ALL' : this.value; filterGraph();">
+        <input type="range" id="max-nodes-slider" min="50" max="3000" step="50" value="300" style="width: 100%;" class="slider" oninput="document.getElementById('max-nodes-val').innerText=this.value == 3000 ? 'ALL' : this.value; filterGraph();">
 
         <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Physics Tuning</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -715,6 +715,8 @@
     let graphWorker = null;
     let nodesDataset = new vis.DataSet([]);
     let edgesDataset = new vis.DataSet([]);
+    let nodesView = new vis.DataView(nodesDataset, { filter: item => !item.hidden });
+    let edgesView = new vis.DataView(edgesDataset, { filter: item => !item.hidden });
     let network = null;
     let rawNodes = [];
     let rawEdges = [];
@@ -766,10 +768,12 @@
                   const newEdges = e.data.edges.filter(e => !edgesDataset.get(e.id));
                   
                   if (newNodes.length > 0) {
+                      newNodes.forEach(n => n.hidden = true); // Pre-hide to bypass physics
                       rawNodes.push(...newNodes);
                       nodesDataset.add(newNodes);
                   }
                   if (newEdges.length > 0) {
+                      newEdges.forEach(edge => edge.hidden = true);
                       rawEdges.push(...newEdges);
                       edgesDataset.add(newEdges);
                   }
@@ -871,8 +875,8 @@
     function drawNetwork() {
       const container = document.getElementById("graph-network");
       const data = {
-        nodes: nodesDataset,
-        edges: edgesDataset
+        nodes: nodesView,
+        edges: edgesView
       };
 
       const options = {
@@ -1648,6 +1652,14 @@
           const updatedEdges = rawEdges.map(e => ({
               id: e.id,
               hidden: !(allowedNodes.has(e.from) && allowedNodes.has(e.to))
+          }));
+          edgesDataset.update(updatedEdges);
+      } else {
+          // If not time travelling, we still need to hide edges where either node is hidden
+          const hiddenNodeSet = new Set(updatedNodes.filter(n => n.hidden).map(n => n.id));
+          const updatedEdges = rawEdges.map(e => ({
+              id: e.id,
+              hidden: hiddenNodeSet.has(e.from) || hiddenNodeSet.has(e.to)
           }));
           edgesDataset.update(updatedEdges);
       }
