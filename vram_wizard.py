@@ -91,6 +91,7 @@ def manage_visualization():
         "Stop Visualization Services",
         "Restart Services",
         "Create Native Database Snapshot (.dump)",
+        "Network & Remote Access Setup",
         "Return to Main Menu"
     ], default_val=1)
     
@@ -164,6 +165,33 @@ def manage_visualization():
             print(f"  ❌ Error running snapshot script: {e}")
         input(f"\n  Press Enter to continue...")
 
+    elif action == 5:
+        clear_screen()
+        print(f"  {BOLD}{NEON_CYAN}🌐 NETWORK & REMOTE ACCESS SETUP{RESET}")
+        print(f"  {'━'*60}")
+        print(f"\n  {BOLD}1. LAN Access (Same Network){RESET}")
+        print(f"     Both the Dashboard and Neo4j database automatically bind to 0.0.0.0.")
+        print(f"     Simply go to a browser on another device and enter:")
+        print(f"     {NEON_GREEN}http://<YOUR_LAN_IP>:8585{RESET}")
+        print(f"     (Note: Ensure your firewall allows inbound TCP on ports 8585 and 7687)")
+        
+        print(f"\n  {BOLD}2. Remote Internet Access (Secure SSH Tunnel){RESET}")
+        print(f"     Since Neo4j uses a separate port (7687) from the web server (8585),")
+        print(f"     the most secure way to access the graph remotely is via SSH forwarding:")
+        print(f"     {NEON_GREEN}ssh -L 8585:localhost:8585 -L 7687:localhost:7687 <your_user>@<your_server_ip>{RESET}")
+        print(f"     Then just open http://localhost:8585 on your local machine.")
+
+        print(f"\n  {BOLD}3. Remote Internet Access (Public Port Forwarding / Ngrok){RESET}")
+        print(f"     To expose to the public internet using Ngrok, you need a paid tier to forward")
+        print(f"     multiple ports simultaneously, or use Cloudflared tunnels:")
+        print(f"     {NEON_GREEN}ngrok http 8585{RESET} (For the Dashboard UI)")
+        print(f"     {NEON_GREEN}ngrok tcp 7687{RESET}  (For the Bolt DB Stream)")
+        
+        input(f"\n  Press Enter to return...")
+
+    elif action == 6:
+        return
+        
     # Return to main menu recursively
     main()
 
