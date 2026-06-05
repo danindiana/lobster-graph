@@ -594,8 +594,13 @@
         </div>
         <div class="control-row">
           <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
-          <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="pause" style="width: 14px; height: 14px;"></i>Pause Layout</button>
-          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Light Mode</button>
+          <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="pause" style="width: 14px; height: 14px;"></i>Pause</button>
+          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save State</button>
+          <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load State</button>
+          <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
         </div>
         <div class="legend">
           <div class="legend-item"><span class="legend-dot" style="color: var(--color-paper); background: var(--color-paper)"></span>Paper Node</div>
@@ -970,6 +975,75 @@
 
     function closeDrawer() {
       document.getElementById("drawer").classList.remove("open");
+    }
+
+    function saveGraph() {
+      if (!network || rawNodes.length === 0) {
+        alert("No graph data to save!");
+        return;
+      }
+      
+      const positions = network.getPositions();
+      const exportNodes = rawNodes.map(n => ({
+        ...n,
+        x: positions[n.id]?.x,
+        y: positions[n.id]?.y
+      }));
+      
+      const data = JSON.stringify({ nodes: exportNodes, edges: rawEdges }, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lobster_graph_state_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function loadGraph(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data.nodes || !data.edges) throw new Error("Invalid graph JSON format");
+          
+          rawNodes = data.nodes;
+          rawEdges = data.edges;
+          
+          let pCount = 0, cCount = 0;
+          rawNodes.forEach(n => {
+             if (n.shape === "dot" && n.size === 28) pCount++;
+             else if (n.shape === "dot" && n.size === 18) cCount++;
+          });
+          document.getElementById("count-papers").textContent = pCount;
+          document.getElementById("count-concepts").textContent = cCount;
+          document.getElementById("count-relations").textContent = rawEdges.length;
+
+          nodesDataset.clear();
+          nodesDataset.add(rawNodes);
+          edgesDataset.clear();
+          edgesDataset.add(rawEdges);
+          
+          if (!network) drawNetwork();
+          
+          isPhysicsActive = false;
+          network.setOptions({ physics: { enabled: false } });
+          const btn = document.getElementById("physics-btn");
+          if (btn) btn.innerHTML = `<i data-lucide="play" style="width: 14px; height: 14px;"></i>Resume Layout`;
+          lucide.createIcons();
+          
+          document.getElementById("connection-overlay").style.display = "none";
+          network.fit();
+          
+        } catch(err) {
+          alert("Error loading graph state: " + err.message);
+        }
+        // reset file input
+        event.target.value = '';
+      };
+      reader.readAsText(file);
     }
 
     function togglePhysics() {
