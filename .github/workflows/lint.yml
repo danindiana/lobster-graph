@@ -16,8 +16,19 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install ruff
-      - run: ruff check paper_processor.py
-      - run: ruff format --check paper_processor.py
+      - run: ruff check . --exclude "fork_*"
+      - run: ruff format --check . --exclude "fork_*"
+
+  pytest:
+    name: Pytest
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest
+      - run: python -m pytest tests/
 
   rust-lint:
     name: Rust (clippy)
