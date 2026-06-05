@@ -21,6 +21,10 @@ This repository includes a specialized **VRAM Concurrent Resident Fork** and a s
 
 ---
 
+> **New to Lobster Graph?** Check out the [Overview for Researchers](docs/OVERVIEW.md) to learn exactly what it does, why it's useful, and what hardware you need to run it.
+
+---
+
 ## Technical Features
 
 * **`paper_processor.py` (Main)**: Sequential single-instance processing.
