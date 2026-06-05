@@ -607,7 +607,7 @@
           <button class="btn" id="focus-btn" onclick="toggleFocusMode()"><i data-lucide="target" style="width: 14px; height: 14px;"></i>Focus: OFF</button>
           <button class="btn" id="hubs-btn" onclick="toggleHubsMode()"><i data-lucide="share-2" style="width: 14px; height: 14px;"></i>Hubs: OFF</button>
           <button class="btn" id="orbit-btn" onclick="toggleOrbitMode()"><i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: OFF</button>
-          <input type="range" id="orbit-spread" min="0.1" max="5.0" step="0.1" value="1.0" style="display: none; width: 60px; margin-left: 8px;" title="Orbit Spread Radius">
+          <input type="range" id="orbit-speed" min="0.1" max="5.0" step="0.1" value="1.0" style="display: none; width: 60px; margin-left: 8px;" title="Orbit Speed Multiplier">
         </div>
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" id="tree-btn" onclick="toggleTreeMode()"><i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF</button>
@@ -1213,11 +1213,11 @@
     function toggleOrbitMode() {
       isOrbitModeEnabled = !isOrbitModeEnabled;
       const btn = document.getElementById("orbit-btn");
-      const spreadSlider = document.getElementById("orbit-spread");
+      const speedSlider = document.getElementById("orbit-speed");
       
       if (isOrbitModeEnabled) {
         btn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: ON`;
-        spreadSlider.style.display = "inline-block";
+        speedSlider.style.display = "inline-block";
         
         if(isPhysicsActive) {
           togglePhysics();
@@ -1235,22 +1235,22 @@
         orbitAngle = 0;
         
         orbitInterval = setInterval(() => {
-          orbitAngle += 0.005;
+          const speedMultiplier = parseFloat(speedSlider.value);
+          orbitAngle += 0.005 * speedMultiplier;
           const cosA = Math.cos(orbitAngle);
           const sinA = Math.sin(orbitAngle);
-          const spread = parseFloat(spreadSlider.value);
           
           const updates = [];
           for (let id in orbitInitialPositions) {
-            let x = (orbitInitialPositions[id].x - orbitCenter.x) * spread;
-            let y = (orbitInitialPositions[id].y - orbitCenter.y) * spread;
+            let x = orbitInitialPositions[id].x - orbitCenter.x;
+            let y = orbitInitialPositions[id].y - orbitCenter.y;
             updates.push({ id: id, x: x * cosA - y * sinA + orbitCenter.x, y: x * sinA + y * cosA + orbitCenter.y });
           }
           nodesDataset.update(updates);
         }, 50);
       } else {
         btn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: OFF`;
-        spreadSlider.style.display = "none";
+        speedSlider.style.display = "none";
         if (orbitInterval) {
            clearInterval(orbitInterval);
            orbitInterval = null;
