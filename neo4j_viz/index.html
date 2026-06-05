@@ -606,6 +606,7 @@
         <div class="control-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
           <button class="btn" id="focus-btn" onclick="toggleFocusMode()"><i data-lucide="target" style="width: 14px; height: 14px;"></i>Focus: OFF</button>
           <button class="btn" id="hubs-btn" onclick="toggleHubsMode()"><i data-lucide="share-2" style="width: 14px; height: 14px;"></i>Hubs: OFF</button>
+          <button class="btn" id="orbit-btn" onclick="toggleOrbitMode()"><i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: OFF</button>
         </div>
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" id="tree-btn" onclick="toggleTreeMode()"><i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF</button>
@@ -668,6 +669,8 @@
     let isRadarModeEnabled = false;
     let minimapNetwork = null;
     let selectedNodeIds = [];
+    let isOrbitModeEnabled = false;
+    let orbitInterval = null;
 
     async function connectAndInitialize() {
       const url = document.getElementById("db-url").value;
@@ -1099,6 +1102,10 @@
       isPhysicsActive = !isPhysicsActive;
       network.setOptions({ physics: { enabled: isPhysicsActive } });
       
+      if (isPhysicsActive && isOrbitModeEnabled) {
+         toggleOrbitMode();
+      }
+
       const btn = document.getElementById("physics-btn");
       if (isPhysicsActive) {
         btn.innerHTML = `<i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON`;
@@ -1163,6 +1170,49 @@
       } else {
         container.style.display = "none";
         btn.innerHTML = `<i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF`;
+      }
+      lucide.createIcons();
+    }
+
+    function toggleOrbitMode() {
+      isOrbitModeEnabled = !isOrbitModeEnabled;
+      const btn = document.getElementById("orbit-btn");
+      
+      if (isOrbitModeEnabled) {
+        btn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: ON`;
+        
+        if(isPhysicsActive) {
+          togglePhysics();
+        }
+
+        const angle = 0.005;
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        
+        orbitInterval = setInterval(() => {
+          const positions = network.getPositions();
+          let cx = 0, cy = 0, count = 0;
+          for (let id in positions) {
+             cx += positions[id].x;
+             cy += positions[id].y;
+             count++;
+          }
+          if(count > 0) { cx /= count; cy /= count; }
+          
+          const updates = [];
+          for (let id in positions) {
+            let x = positions[id].x - cx;
+            let y = positions[id].y - cy;
+            updates.push({ id: id, x: x * cosA - y * sinA + cx, y: x * sinA + y * cosA + cy });
+          }
+          nodesDataset.update(updates);
+        }, 50);
+      } else {
+        btn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: OFF`;
+        if (orbitInterval) {
+           clearInterval(orbitInterval);
+           orbitInterval = null;
+        }
       }
       lucide.createIcons();
     }
