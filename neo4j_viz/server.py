@@ -25,8 +25,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         # Intercept and map /_processed/ assets to the external processed SSD folder
         if path.startswith("/_processed/"):
             rel_path = path[len("/_processed/"):].lstrip("/")
-            target_path = os.path.realpath(os.path.join(PROCESSED_PATH, rel_path))
-            if not target_path.startswith(os.path.realpath(PROCESSED_PATH)):
+            root_real = os.path.realpath(PROCESSED_PATH)
+            target_path = os.path.realpath(os.path.join(root_real, rel_path))
+            try:
+                if os.path.commonpath([root_real, target_path]) != root_real:
+                    return None
+            except ValueError:
                 return None
             return target_path
             
@@ -43,7 +47,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             if args:
                                 dataset_path = args[0]
                                 datasets.add(os.path.join(dataset_path, "_processed"))
-                datasets.add("/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed")
+                datasets.add(PROCESSED_PATH)
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
