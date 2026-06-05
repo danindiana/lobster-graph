@@ -562,6 +562,13 @@
           <input type="password" id="db-pass" value="password123">
         </div>
         
+        <div class="input-group" style="margin-bottom: 24px;">
+          <label>Target Dataset (Pipeline Target)</label>
+          <select id="dataset-select" style="width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); padding: 10px 14px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 13px; outline: none; transition: all 0.2s ease;">
+            <option value="/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed">/illoinois_edu/_processed</option>
+          </select>
+        </div>
+        
         <button class="btn-primary" onclick="connectAndInitialize()">Initialize Dashboard</button>
       </div>
       <!-- Timeline Floating Panel -->
@@ -730,13 +737,24 @@
       const url = document.getElementById("db-url").value;
       const user = document.getElementById("db-user").value;
       const pass = document.getElementById("db-pass").value;
+      const dataset = document.getElementById("dataset-select").value;
 
       try {
+        // Update backend with target dataset
+        await fetch('/api/set_dataset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: dataset })
+        });
+
         driver = neo4j.driver(url, neo4j.auth.basic(user, pass));
         await driver.verifyConnectivity();
         document.getElementById("connection-overlay").style.display = "none";
         
-        // Load data from Neo4j
+        // Trigger initial import in the background and then load
+        fetch('/api/sync').then(() => updateGraphData()).catch(e => console.error(e));
+        
+        // Load data from Neo4j (will show existing data while sync runs)
         await loadGraphData();
       } catch (err) {
         alert("Connection failed: " + err.message);
@@ -1723,8 +1741,26 @@
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
     }
-    // Auto-connect by default so the dashboard displays seamlessly on LAN
-    setTimeout(connectAndInitialize, 300);
+    // Auto-connect disabled to allow dataset selection
+    lucide.createIcons();
+
+    // Dynamically query server for active pipelines
+    fetch('/api/active_datasets')
+      .then(res => res.json())
+      .then(data => {
+          const select = document.getElementById('dataset-select');
+          if (data.datasets && data.datasets.length > 0) {
+              select.innerHTML = '';
+              data.datasets.forEach(d => {
+                  const opt = document.createElement('option');
+                  opt.value = d;
+                  let label = d.split('/').slice(-2).join('/');
+                  if (d.includes('nanobots')) label += ' 🟢 (ACTIVE PROCESS)';
+                  opt.textContent = label;
+                  select.appendChild(opt);
+              });
+          }
+      }).catch(err => console.log("Dataset fetch failed, using default:", err));
   </script>
 </body>
 </html>
