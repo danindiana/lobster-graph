@@ -67,9 +67,6 @@ To enforce physical VRAM isolation, twin Ollama daemons run on separate ports, r
 In standard scheduling, switching between large models triggers high SSD read rates and 30–60 second loading penalties. Concurrent pinning reduces model loading times to **0 seconds** after startup.
 ![io disk residency](docs/diagrams/07_io_disk_residency.png)
 
-### 7. Optimizations Roadmap
-roadmap of future enhancements.
-![future directions](docs/diagrams/08_future_directions.png)
 
 ---
 
@@ -106,9 +103,7 @@ To configure your run options, pick papers, choose models, and run:
 ./vram_wizard.py
 ```
 
-<p align="center">
-  <img src="docs/diagrams/explainer/howto_quickstart.svg" alt="Quickstart Flowchart">
-</p>
+![Quickstart Flowchart](docs/diagrams/explainer/howto_quickstart.svg)
 
 ### 4. Running the Telemetry Monitor
 To check GPU core load, temperature, power, and Ollama VRAM allocations in real-time:
@@ -151,9 +146,7 @@ python vram_resident_processor.py [papers_dir] [flags]
 
 ## Roadmap
 
-<p align="center">
-  <img src="docs/diagrams/explainer/future_directions.svg" alt="Future Directions Roadmap">
-</p>
+![Future Directions Roadmap](docs/diagrams/explainer/future_directions.svg)
 
 ---
 

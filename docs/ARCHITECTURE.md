@@ -1,8 +1,6 @@
 # Architecture
 
-<p align="center">
-  <img src="diagrams/explainer/architecture_dataflow.svg" alt="Data Flow Architecture">
-</p>
+![Data Flow Architecture](diagrams/explainer/architecture_dataflow.svg)
 
 ## Overview
 
