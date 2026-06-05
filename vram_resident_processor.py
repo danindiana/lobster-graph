@@ -109,7 +109,7 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
 CODE_MODEL = MODEL_TIERS["xl_code"]
 
 PRIMARY_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-CODE_OLLAMA_URL = os.environ.get("CODE_OLLAMA_URL", "http://localhost:11434")
+CODE_OLLAMA_URL = os.environ.get("CODE_OLLAMA_URL", "http://localhost:11435")
 
 # Curated list of known-good models for the interactive selector (-s flag).
 # Ordered for zero-swap dual-GPU concurrency preference first.
@@ -1117,7 +1117,7 @@ def main():
     )
     ap.add_argument(
         "papers_dir", nargs="?",
-        default="/home/jeb/Documents/AI-ML_Papers",
+        default=os.path.join(os.path.expanduser("~"), "Documents", "AI-ML_Papers"),
         help="Directory containing PDF papers (default: ~/Documents/AI-ML_Papers)",
     )
     ap.add_argument(

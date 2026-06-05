@@ -46,7 +46,10 @@ const NEON_YELLOW: Color = Color::Rgb(0xFF, 0xFF, 0x00);
 const DIM_GREY: Color = Color::Rgb(0x55, 0x55, 0x55);
 
 const PROCESSOR_PY: &str = "paper_processor.py";
-const DEFAULT_PAPERS_DIR: &str = "/home/jeb/Documents/AI-ML_Papers";
+fn default_papers_dir() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    format!("{}/Documents/AI-ML_Papers", home)
+}
 const VENV_PYTHON: &str = "/home/jeb/programs/python_programs/venv/bin/python";
 const OLLAMA_URL: &str = "http://localhost:11434";
 const TAB_TITLES: &[&str] = &["Overview", "Scan", "Config", "Run", "Help"];
@@ -136,7 +139,7 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            papers_dir:          DEFAULT_PAPERS_DIR.to_string(),
+            papers_dir:          default_papers_dir(),
             backend:             Backend::Ollama,
             model_override:      String::new(),
             code_model_override: String::new(),

@@ -1094,7 +1094,7 @@ def main():
     )
     ap.add_argument(
         "papers_dir", nargs="?",
-        default="/home/jeb/Documents/AI-ML_Papers",
+        default=os.path.join(os.path.expanduser("~"), "Documents", "AI-ML_Papers"),
         help="Directory containing PDF papers (default: ~/Documents/AI-ML_Papers)",
     )
     ap.add_argument(

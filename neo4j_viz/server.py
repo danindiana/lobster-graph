@@ -10,28 +10,54 @@ import socket
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 8585
-PROCESSED_PATH = "/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed"
+PROCESSED_PATH = os.path.join(os.path.expanduser("~"), "Documents", "AI-ML_Papers", "_processed")
 if len(sys.argv) > 1:
     PROCESSED_PATH = sys.argv[1]
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class DashboardHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
+        global PROCESSED_PATH
         # Strip query parameters and hash fragments
         path = path.split('?', 1)[0]
         path = path.split('#', 1)[0]
         
         # Intercept and map /_processed/ assets to the external processed SSD folder
         if path.startswith("/_processed/"):
-            rel_path = path[len("/_processed/"):]
-            rel_path = rel_path.lstrip("/")
-            return os.path.join(PROCESSED_PATH, rel_path)
+            rel_path = path[len("/_processed/"):].lstrip("/")
+            target_path = os.path.realpath(os.path.join(PROCESSED_PATH, rel_path))
+            if not target_path.startswith(os.path.realpath(PROCESSED_PATH)):
+                return None
+            return target_path
+            
+        if path == "/api/active_datasets":
+            import subprocess, json
+            try:
+                ps = subprocess.check_output(["ps", "aux"]).decode()
+                datasets = set()
+                for line in ps.splitlines():
+                    if "vram_resident_processor.py" in line and "grep" not in line:
+                        parts = line.split("vram_resident_processor.py")
+                        if len(parts) > 1:
+                            args = parts[1].strip().split()
+                            if args:
+                                dataset_path = args[0]
+                                datasets.add(os.path.join(dataset_path, "_processed"))
+                datasets.add("/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed")
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"datasets": list(datasets)}).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+            return None
             
         # Intercept /api/sync to trigger Neo4j import
         if path == "/api/sync":
-            import subprocess
+            import subprocess, json
             try:
-                subprocess.run([sys.executable, "neo4j_importer.py"], cwd=DASHBOARD_DIR)
+                subprocess.run([sys.executable, "neo4j_importer.py", PROCESSED_PATH], cwd=DASHBOARD_DIR)
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -53,6 +79,27 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        global PROCESSED_PATH
+        if self.path == "/api/set_dataset":
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                body = self.rfile.read(content_length)
+                import json
+                try:
+                    data = json.loads(body.decode('utf-8'))
+                    if 'path' in data:
+                        PROCESSED_PATH = data['path']
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(b'{"status":"ok"}')
+                        return
+                except:
+                    pass
+            self.send_response(400)
+            self.end_headers()
+            return
+
         if self.path == "/api/export":
             content_length = int(self.headers.get('Content-Length', 0))
             if content_length > 0:
