@@ -25,7 +25,9 @@ This repository includes a specialized **VRAM Concurrent Resident Fork** and a s
 
 * **`paper_processor.py` (Main)**: Sequential single-instance processing.
 * **`vram_resident_processor.py` (Concurrent Fork)**: Multi-endpoint routing script optimized to run split model endpoints simultaneously, eliminating VRAM loading churn.
-* **`neo4j_viz/` (Dashboard Web App)**: Real-time Neo4j interactive visualization interface supporting Light/Dark modes, Graphviz SVG rendering, and completely offline portable `.json` graph state exports.
+* **`neo4j_viz/` (Dashboard Web App)**: Real-time Neo4j interactive visualization interface supporting Light/Dark modes, Graphviz SVG rendering, and completely offline portable `.json` graph state exports. Includes an Interactive Control Panel with:
+  * **Physics Tuning**: Live sliders for Gravity, Repulsion, and Integration Speed.
+  * **Visualization FX**: Focus Mode (egocentric views), Hubs Mode (degree centrality sizing), Tree Layouts, Orbit physics (drift-free rigid body rotation), and a Radar Minimap.
 * **`installers/` & `snapshot_db.sh`**: Multi-platform deployment tools (`apt`, `brew`, `winget`) and native Neo4j snapshot management.
 * **`vram_wizard.py` (CLI Wizard)**: Interactive Python terminal dashboard tool to configure directories, endpoints, scope, launch processes, and create database snapshots.
 * **`telemetry_monitor.py` (Profiler)**: Zero-dependency live CPU, RAM, Disk, and dual-GPU telemetry terminal monitor.

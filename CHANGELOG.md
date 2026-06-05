@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.6.0] — 2026-06-04
 
 ### Added
+- **Interactive Visualization FX**: Engineered four new visualization toggles: Focus Mode (egocentric highlighting), Hubs Mode (degree centrality sizing), Tree Layout (hierarchical top-down sorting), and Radar Mode (bottom-right minimap overlay).
+- **Physics Tuning Sliders**: Integrated real-time parameter tuning for the underlying ForceAtlas2 physics engine. Added dynamic HTML sliders to control Gravity, Repulsion, and Integration Speed directly from the control panel.
+- **Orbit Mode & Spread Controls**: Built a rigid-body rotation algorithm that pivots nodes around the network's geometric center of mass without drift. Added an 'Orbit Spread' slider to allow users to visually expand or compress the orbital radius.
 - **Graph State Portability (Save/Load)**: Added "Save State" and "Load State" capabilities to the web dashboard. Captures `(x, y)` physics layout positions into `.json` so offline users can load the graph exactly as it was laid out without needing the Neo4j database.
 - **Interactive Physics Controls**: Added dedicated "Physics: ON" and "Stabilize: OFF" toggles to the web dashboard. Users can disable gravity on the fly or toggle the stabilization phase to watch the gravitational engine layout papers in real-time.
 - **Native Database Snapshots**: Built `snapshot_db.sh` to safely pause Neo4j, dump the raw binary data (`neo4j-admin database dump`), and instantly restart it. Added support for this to the `vram_wizard.py` control center.
