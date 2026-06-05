@@ -626,6 +626,9 @@
           <button class="btn" id="radar-btn" onclick="toggleRadarMode()"><i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF</button>
           <button class="btn" id="time-btn" onclick="toggleTimeTravel()"><i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: OFF</button>
         </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" id="lod-btn" onclick="toggleLOD()"><i data-lucide="layers" style="width: 14px; height: 14px;"></i>Auto-LOD: OFF</button>
+        </div>
         <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Physics Tuning</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <span style="font-size: 11px; color: var(--text-muted);">GRAVITY</span>
@@ -696,6 +699,8 @@
     let isRadarModeEnabled = false;
     let isTimeTravelEnabled = false;
     let isLiveSyncEnabled = false;
+    let isHysteresisEnabled = false;
+    let currentLodState = 'detailed';
     let liveSyncInterval = null;
     let timeMin = 0;
     let timeMax = 0;
@@ -895,22 +900,52 @@
 
       network = new vis.Network(container, data, options);
 
-      // On select, open drawer and display properties
-      network.on("selectNode", function (params) {
-        selectedNodeIds = params.nodes;
-        if (isFocusModeEnabled) filterGraph();
+      network.on("click", function (params) {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
-          const node = nodesDataset.get(nodeId);
-          showNodeDetails(node);
+          const node = rawNodes.find(n => n.id === nodeId);
+          if (node) showNodeDetails(node);
+          
+          selectedNodeIds = [nodeId];
+          if (isFocusModeEnabled) filterGraph();
+        } else {
+          closeDrawer();
+          selectedNodeIds = [];
+          if (isFocusModeEnabled) filterGraph();
         }
       });
-
-      network.on("deselectNode", function () {
-        selectedNodeIds = [];
-        if (isFocusModeEnabled) filterGraph();
-        closeDrawer();
+      
+      network.on("zoom", function (params) {
+          if (!isHysteresisEnabled) return;
+          const scale = params.scale;
+          let changed = false;
+          
+          if (currentLodState === 'detailed' && scale < 0.25) {
+              currentLodState = 'summary';
+              changed = true;
+          } else if (currentLodState === 'summary' && scale > 0.40) {
+              currentLodState = 'detailed';
+              changed = true;
+          }
+          
+          if (changed) {
+              filterGraph();
+          }
       });
+    }
+
+    function toggleAutoLOD() {
+        isHysteresisEnabled = !isHysteresisEnabled;
+        const btn = document.getElementById("lod-toggle");
+        if (btn) btn.classList.toggle("active", isHysteresisEnabled);
+        if (!isHysteresisEnabled) {
+            currentLodState = 'detailed';
+            filterGraph();
+        } else {
+            const scale = network.getScale();
+            currentLodState = scale < 0.25 ? 'summary' : 'detailed';
+            filterGraph();
+        }
     }
 
     function showNodeDetails(node) {
@@ -1493,6 +1528,25 @@
         }
     }
 
+    function toggleLOD() {
+        isHysteresisEnabled = !isHysteresisEnabled;
+        const btn = document.getElementById("lod-btn");
+        if (isHysteresisEnabled) {
+            btn.innerHTML = `<i data-lucide="layers" style="width: 14px; height: 14px;"></i>Auto-LOD: ON`;
+            // Trigger check manually to sync state
+            if (network) {
+                const scale = network.getScale();
+                if (scale < 0.25) currentLodState = 'summary';
+                else currentLodState = 'detailed';
+            }
+        } else {
+            btn.innerHTML = `<i data-lucide="layers" style="width: 14px; height: 14px;"></i>Auto-LOD: OFF`;
+            currentLodState = 'detailed';
+        }
+        lucide.createIcons();
+        filterGraph();
+    }
+
     function toggleLiveSync() {
         isLiveSyncEnabled = !isLiveSyncEnabled;
         const btn = document.getElementById("live-sync-btn");
@@ -1594,6 +1648,10 @@
         
         let isHidden = false;
         if (isTimeTravelEnabled && allowedNodes && !allowedNodes.has(node.id)) {
+            isHidden = true;
+        }
+        
+        if (isHysteresisEnabled && currentLodState === 'summary' && node.type !== "Paper") {
             isHidden = true;
         }
         
