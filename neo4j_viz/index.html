@@ -612,6 +612,7 @@
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save State</button>
           <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load State</button>
+          <button class="btn" id="live-sync-btn" onclick="toggleLiveSync()"><i data-lucide="activity" style="width: 14px; height: 14px;"></i>Live Sync: OFF</button>
           <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
         </div>
         <div class="control-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); align-items: center;">
@@ -694,6 +695,8 @@
     let isTreeModeEnabled = false;
     let isRadarModeEnabled = false;
     let isTimeTravelEnabled = false;
+    let isLiveSyncEnabled = false;
+    let liveSyncInterval = null;
     let timeMin = 0;
     let timeMax = 0;
     let windowCutoff = 0;
@@ -1377,6 +1380,100 @@
         }
       }
       lucide.createIcons();
+    }
+
+    async function updateGraphData() {
+        const session = driver.session();
+        try {
+            // Ask server to run neo4j_importer.py
+            try {
+               await fetch('/api/sync');
+            } catch (e) {
+               console.warn("Failed to trigger server sync:", e);
+            }
+            
+            // Fetch updated data
+            const result = await session.run(`
+                MATCH (n)
+                OPTIONAL MATCH (n)-[r]->(m)
+                RETURN n, r, m
+            `);
+            
+            const nodeMap = new Map();
+            const edges = [];
+            const isLight = document.body.classList.contains('light-mode');
+
+            result.records.forEach(record => {
+                const n = record.get('n');
+                if (n && !nodeMap.has(n.identity.toString())) {
+                    nodeMap.set(n.identity.toString(), parseNode(n));
+                }
+                const m = record.get('m');
+                if (m && !nodeMap.has(m.identity.toString())) {
+                    nodeMap.set(m.identity.toString(), parseNode(m));
+                }
+                const r = record.get('r');
+                if (r) {
+                    edges.push({
+                        id: r.identity.toString(),
+                        from: r.start.toString(),
+                        to: r.end.toString(),
+                        label: r.type,
+                        font: { strokeWidth: 0, color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)", size: 10, face: "Outfit" },
+                        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+                        color: { color: isLight ? "rgba(0,0,0,0.15)" : "rgba(255, 255, 255, 0.12)", highlight: "rgba(0, 229, 255, 0.4)" }
+                    });
+                }
+            });
+
+            // Count
+            let pCount = 0, cCount = 0;
+            nodeMap.forEach(v => {
+                if(v.type === "Paper") pCount++;
+                if(v.type === "Concept") cCount++;
+            });
+            document.getElementById("count-papers").textContent = pCount;
+            document.getElementById("count-concepts").textContent = cCount;
+            document.getElementById("count-relations").textContent = edges.length;
+
+            rawNodes = Array.from(nodeMap.values());
+            rawEdges = edges;
+
+            nodesDataset.update(rawNodes);
+            edgesDataset.update(rawEdges);
+            filterGraph();
+            
+            // Pulse the button to show sync activity
+            const btn = document.getElementById("live-sync-btn");
+            btn.style.color = "#a7f3d0";
+            setTimeout(() => { btn.style.color = "#6ee7b7"; }, 500);
+
+        } catch (err) {
+            console.error("Live sync error:", err);
+        } finally {
+            await session.close();
+        }
+    }
+
+    function toggleLiveSync() {
+        isLiveSyncEnabled = !isLiveSyncEnabled;
+        const btn = document.getElementById("live-sync-btn");
+        
+        if (isLiveSyncEnabled) {
+            btn.innerHTML = `<i data-lucide="activity" style="width: 14px; height: 14px;"></i>Live Sync: ON`;
+            btn.style.borderColor = "#6ee7b7";
+            btn.style.color = "#6ee7b7";
+            
+            // Immediate sync, then every 5 seconds
+            updateGraphData();
+            liveSyncInterval = setInterval(updateGraphData, 5000);
+        } else {
+            btn.innerHTML = `<i data-lucide="activity" style="width: 14px; height: 14px;"></i>Live Sync: OFF`;
+            btn.style.borderColor = "rgba(110, 231, 183, 0.3)";
+            btn.style.color = "#6ee7b7";
+            if (liveSyncInterval) clearInterval(liveSyncInterval);
+        }
+        lucide.createIcons();
     }
 
     function toggleStabilization() {

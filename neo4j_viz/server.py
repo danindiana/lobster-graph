@@ -24,12 +24,33 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         # Intercept and map /_processed/ assets to the external processed SSD folder
         if path.startswith("/_processed/"):
             rel_path = path[len("/_processed/"):]
-            # Remove leading slash or URL decoding issues
             rel_path = rel_path.lstrip("/")
             return os.path.join(PROCESSED_PATH, rel_path)
             
+        # Intercept /api/sync to trigger Neo4j import
+        if path == "/api/sync":
+            import subprocess
+            try:
+                subprocess.run([sys.executable, "neo4j_importer.py"], cwd=DASHBOARD_DIR)
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}')
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(f'{{"error":"{e}"}}'.encode())
+            return None
+            
         # Default behavior: serve from dashboard directory
         return os.path.join(DASHBOARD_DIR, path.lstrip("/"))
+
+    def do_GET(self):
+        # Override do_GET to handle our API which returns None from translate_path
+        path = self.translate_path(self.path)
+        if path is None:
+            return
+        super().do_GET()
 
 def get_lan_ip():
     """Helper to query the local hostname to get the actual LAN IP."""
