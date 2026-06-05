@@ -600,6 +600,7 @@
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save State</button>
           <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load State</button>
+          <button class="btn" onclick="clearDatabase()" style="color: #ff4444; border-color: rgba(255,68,68,0.3);"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>Clear DB</button>
           <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
         </div>
         <div class="legend">
@@ -1044,6 +1045,31 @@
         event.target.value = '';
       };
       reader.readAsText(file);
+    }
+    async function clearDatabase() {
+      if (!confirm("⚠️ WARNING: This will permanently delete all nodes and relationships in the active Neo4j database.\n\nAre you sure you want to proceed?")) {
+        return;
+      }
+      if (!driver) {
+        alert("Not currently connected to a Neo4j database.");
+        return;
+      }
+      const session = driver.session();
+      try {
+        await session.run("MATCH (n) DETACH DELETE n");
+        alert("Database cleared successfully!");
+        rawNodes = [];
+        rawEdges = [];
+        nodesDataset.clear();
+        edgesDataset.clear();
+        document.getElementById("count-papers").textContent = "0";
+        document.getElementById("count-concepts").textContent = "0";
+        document.getElementById("count-relations").textContent = "0";
+      } catch (err) {
+        alert("Error clearing database: " + err.message);
+      } finally {
+        await session.close();
+      }
     }
 
     function togglePhysics() {
