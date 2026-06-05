@@ -53,8 +53,8 @@ self.onmessage = function(e) {
                     if (r) {
                         edgeBuffer.push({
                             id: r.identity.toString(),
-                            from: r.start.toString(),
-                            to: r.end.toString(),
+                            source: r.start.toString(),
+                            target: r.end.toString(),
                             label: r.type,
                             font: { strokeWidth: 0, color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)", size: 10, face: "Outfit" },
                             arrows: { to: { enabled: true, scaleFactor: 0.5 } },

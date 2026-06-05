@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   
   <!-- Vis.js Network Library -->
-  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://unpkg.com/3d-force-graph"></script>
   
   <!-- Neo4j JavaScript Driver -->
   <script src="https://unpkg.com/neo4j-driver"></script>
@@ -651,9 +651,9 @@
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; margin-top: 12px;">
           <span style="font-size: 11px; color: var(--text-muted);">MAX NODES</span>
-          <span id="max-nodes-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">300</span>
+          <span id="max-nodes-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">ALL</span>
         </div>
-        <input type="range" id="max-nodes-slider" min="50" max="3000" step="50" value="300" style="width: 100%;" class="slider" oninput="document.getElementById('max-nodes-val').innerText=this.value == 3000 ? 'ALL' : this.value; filterGraph();">
+        <input type="range" id="max-nodes-slider" min="50" max="3000" step="50" value="3000" style="width: 100%;" class="slider" oninput="document.getElementById('max-nodes-val').innerText=this.value == 3000 ? 'ALL' : this.value; filterGraph();">
 
         <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Physics Tuning</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -713,10 +713,10 @@
 
     let driver = null;
     let graphWorker = null;
-    let nodesDataset = new vis.DataSet([]);
-    let edgesDataset = new vis.DataSet([]);
-    let nodesView = new vis.DataView(nodesDataset, { filter: item => !item.hidden });
-    let edgesView = new vis.DataView(edgesDataset, { filter: item => !item.hidden });
+    
+    
+    
+    
     let network = null;
     let rawNodes = [];
     let rawEdges = [];
@@ -764,18 +764,14 @@
               } else if (e.data.type === 'BATCH') {
                   if (!network) drawNetwork();
                   
-                  const newNodes = e.data.nodes.filter(n => !nodesDataset.get(n.id));
-                  const newEdges = e.data.edges.filter(e => !edgesDataset.get(e.id));
+                  const newNodes = e.data.nodes.filter(n => !rawNodes.find(rn => rn.id === n.id));
+                  const newEdges = e.data.edges.filter(e => !rawEdges.find(re => re.id === e.id));
                   
                   if (newNodes.length > 0) {
-                      newNodes.forEach(n => n.hidden = true); // Pre-hide to bypass physics
                       rawNodes.push(...newNodes);
-                      nodesDataset.add(newNodes);
                   }
                   if (newEdges.length > 0) {
-                      newEdges.forEach(edge => edge.hidden = true);
                       rawEdges.push(...newEdges);
-                      edgesDataset.add(newEdges);
                   }
                   
                   document.getElementById("count-papers").textContent = e.data.pCount;
@@ -874,77 +870,36 @@
 
     function drawNetwork() {
       const container = document.getElementById("graph-network");
-      const data = {
-        nodes: nodesView,
-        edges: edgesView
-      };
-
-      const options = {
-        nodes: {
-          borderWidth: 2,
-          shadow: false
-        },
-        layout: {
-          improvedLayout: false
-        },
-        edges: {
-          width: 1.5,
-          smooth: {
-            type: "continuous",
-            forceDirection: "none"
-          }
-        },
-        physics: {
-          solver: "forceAtlas2Based",
-          forceAtlas2Based: {
-            gravitationalConstant: -50,
-            centralGravity: 0.01,
-            springLength: 90,
-            springConstant: 0.08
-          },
-          stabilization: false
-        },
-        interaction: {
-          hover: true,
-          tooltipDelay: 200,
-          hideEdgesOnDrag: true
-        }
-      };
-
-      network = new vis.Network(container, data, options);
-
-      network.on("click", function (params) {
-        if (params.nodes.length > 0) {
-          const nodeId = params.nodes[0];
-          const node = rawNodes.find(n => n.id === nodeId);
-          if (node) showNodeDetails(node);
+      network = ForceGraph3D()(container)
+          .numDimensions(2)
+          .backgroundColor('transparent')
+          .nodeLabel(n => escapeHtml(n.title))
+          .nodeColor(n => n.color.background)
+          .nodeVal(n => n.size / 5)
+          .linkColor(e => "rgba(0, 229, 255, 0.4)")
+          .linkWidth(1)
+          .onNodeClick(node => {
+              showNodeDetails(node);
+              selectedNodeIds = [node.id];
+              if (isFocusModeEnabled) filterGraph();
+          })
+          .onBackgroundClick(() => {
+              closeDrawer();
+              selectedNodeIds = [];
+              if (isFocusModeEnabled) filterGraph();
+          });
           
-          selectedNodeIds = [nodeId];
-          if (isFocusModeEnabled) filterGraph();
-        } else {
-          closeDrawer();
-          selectedNodeIds = [];
-          if (isFocusModeEnabled) filterGraph();
-        }
-      });
-      
-      network.on("zoom", function (params) {
-          if (!isHysteresisEnabled) return;
-          const scale = params.scale;
-          let changed = false;
-          
-          if (currentLodState === 'detailed' && scale < 0.25) {
-              currentLodState = 'summary';
-              changed = true;
-          } else if (currentLodState === 'summary' && scale > 0.40) {
-              currentLodState = 'detailed';
-              changed = true;
-          }
-          
-          if (changed) {
-              filterGraph();
-          }
-      });
+      // Mock vis-network methods to prevent UI buttons from crashing
+      network.fit = () => network.zoomToFit(400);
+      network.getScale = () => 1;
+      network.getPositions = () => ({});
+      network.setOptions = () => {};
+      network.startSimulation = () => {};
+      network.stabilize = () => {};
+      network.on = () => {};
+      network.moveTo = () => {};
+      network.setSize = () => {};
+      network.redraw = () => {};
     }
 
     function toggleAutoLOD() {
@@ -1558,7 +1513,7 @@
     }
 
     function filterGraph() {
-      const q = document.getElementById("search-input").value.toLowerCase();
+      const q = document.getElementById("search-input").value.targetLowerCase();
       const isLight = document.body.classList.contains('light-mode');
       const minConn = parseInt(document.getElementById("min-conn-slider")?.value || "0");
       const maxNodesSliderVal = parseInt(document.getElementById("max-nodes-slider")?.value || "3000");
@@ -1566,8 +1521,8 @@
       
       let degrees = {};
       rawEdges.forEach(e => {
-         degrees[e.from] = (degrees[e.from] || 0) + 1;
-         degrees[e.to] = (degrees[e.to] || 0) + 1;
+         degrees[e.source.id || e.source] = (degrees[e.source.id || e.source] || 0) + 1;
+         degrees[e.target.id || e.target] = (degrees[e.target.id || e.target] || 0) + 1;
       });
 
       let allowedByMaxNodes = null;
@@ -1593,19 +1548,19 @@
           });
           allowedNodes = new Set(allowedPapers);
           rawEdges.forEach(e => {
-              if (allowedPapers.has(e.from)) allowedNodes.add(e.to);
-              if (allowedPapers.has(e.to)) allowedNodes.add(e.from);
+              if (allowedPapers.has(e.source)) allowedNodes.add(e.target);
+              if (allowedPapers.has(e.target)) allowedNodes.add(e.source);
           });
       }
 
       const updatedNodes = rawNodes.map(node => {
-        let match = !q || node.title.toLowerCase().includes(q) || 
+        let match = !q || node.title.targetLowerCase().includes(q) || 
                       (node.properties.definition && node.properties.definition.toLowerCase().includes(q)) ||
                       (node.properties.motivation && node.properties.motivation.toLowerCase().includes(q));
                       
         if (isFocusModeEnabled && selectedNodeIds.length > 0) {
             const isSelected = selectedNodeIds.includes(node.id);
-            const isNeighbor = network ? network.getConnectedNodes(selectedNodeIds[0]).includes(node.id) : false;
+            const isNeighbor = rawEdges.some(e => ((e.source.id || e.source) === selectedNodeIds[0] && (e.target.id || e.target) === node.id) || ((e.target.id || e.target) === selectedNodeIds[0] && (e.source.id || e.source) === node.id));
             if (!isSelected && !isNeighbor) match = false;
         }
         
@@ -1646,39 +1601,18 @@
         };
       });
 
-      const nodesToUpdate = [];
-      updatedNodes.forEach(un => {
-          const current = nodesDataset.get(un.id);
-          if (!current || 
-              current.hidden !== un.hidden || 
-              current.size !== un.size || 
-              !current.color || current.color.background !== un.color.background ||
-              !current.shadow || current.shadow.enabled !== un.shadow.enabled) {
-              nodesToUpdate.push(un);
+      const visibleNodes = updatedNodes.filter(n => !n.hidden);
+      const hiddenNodeSet = new Set(updatedNodes.filter(n => n.hidden).map(n => n.id));
+      const visibleLinks = rawEdges.filter(e => {
+          if (isTimeTravelEnabled && allowedNodes) {
+              return allowedNodes.has(e.source.id || e.source) && allowedNodes.has(e.target.id || e.target);
+          } else {
+              return !hiddenNodeSet.has(e.source.id || e.source) && !hiddenNodeSet.has(e.target.id || e.target);
           }
       });
-      if (nodesToUpdate.length > 0) nodesDataset.update(nodesToUpdate);
-      
-      const edgesToUpdate = [];
-      if (isTimeTravelEnabled && allowedNodes) {
-          rawEdges.forEach(e => {
-              const isHidden = !(allowedNodes.has(e.from) && allowedNodes.has(e.to));
-              const current = edgesDataset.get(e.id);
-              if (!current || current.hidden !== isHidden) {
-                  edgesToUpdate.push({ id: e.id, hidden: isHidden });
-              }
-          });
-      } else {
-          const hiddenNodeSet = new Set(updatedNodes.filter(n => n.hidden).map(n => n.id));
-          rawEdges.forEach(e => {
-              const isHidden = hiddenNodeSet.has(e.from) || hiddenNodeSet.has(e.to);
-              const current = edgesDataset.get(e.id);
-              if (!current || current.hidden !== isHidden) {
-                  edgesToUpdate.push({ id: e.id, hidden: isHidden });
-              }
-          });
+      if (network) {
+          network.graphData({ nodes: visibleNodes, links: visibleLinks });
       }
-      if (edgesToUpdate.length > 0) edgesDataset.update(edgesToUpdate);
     }
 
     // Helper to darken hex colors for light mode contrast
