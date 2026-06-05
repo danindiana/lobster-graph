@@ -602,14 +602,16 @@
         </div>
         <div class="control-row">
           <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
+          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
+          <button class="btn" onclick="exportImage()"><i data-lucide="camera" style="width: 14px; height: 14px;"></i>Export 4K</button>
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
           <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON</button>
           <button class="btn" id="stabilize-btn" onclick="toggleStabilization()"><i data-lucide="waves" style="width: 14px; height: 14px;"></i>Stabilize: OFF</button>
         </div>
         <div class="control-row" style="margin-top: 8px;">
-          <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save</button>
-          <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load</button>
-          <button class="btn" onclick="exportImage()"><i data-lucide="camera" style="width: 14px; height: 14px;"></i>Export 4K</button>
-          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
+          <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save State</button>
+          <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load State</button>
           <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
         </div>
         <div class="control-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); align-items: center;">
