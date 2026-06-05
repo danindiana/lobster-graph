@@ -625,10 +625,16 @@
           <button class="btn" id="tree-btn" onclick="toggleTreeMode()"><i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF</button>
           <button class="btn" id="radar-btn" onclick="toggleRadarMode()"><i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF</button>
           <button class="btn" id="time-btn" onclick="toggleTimeTravel()"><i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: OFF</button>
-        </div>
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" id="lod-btn" onclick="toggleLOD()"><i data-lucide="layers" style="width: 14px; height: 14px;"></i>Auto-LOD: OFF</button>
         </div>
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Data Filtering</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11px; color: var(--text-muted);">MIN CONNECTIONS</span>
+          <span id="min-conn-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">0</span>
+        </div>
+        <input type="range" id="min-conn-slider" min="0" max="20" step="1" value="0" class="slider" oninput="document.getElementById('min-conn-val').innerText=this.value; filterGraph();">
+        
         <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Physics Tuning</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <span style="font-size: 11px; color: var(--text-muted);">GRAVITY</span>
@@ -1609,9 +1615,10 @@
     function filterGraph() {
       const q = document.getElementById("search-input").value.toLowerCase();
       const isLight = document.body.classList.contains('light-mode');
+      const minConn = parseInt(document.getElementById("min-conn-slider")?.value || "0");
       
       let degrees = {};
-      if (isHubsModeEnabled) {
+      if (isHubsModeEnabled || minConn > 0) {
          rawEdges.forEach(e => {
             degrees[e.from] = (degrees[e.from] || 0) + 1;
             degrees[e.to] = (degrees[e.to] || 0) + 1;
@@ -1652,6 +1659,10 @@
         }
         
         if (isHysteresisEnabled && currentLodState === 'summary' && node.type !== "Paper") {
+            isHidden = true;
+        }
+
+        if (minConn > 0 && (degrees[node.id] || 0) < minConn) {
             isHidden = true;
         }
         
