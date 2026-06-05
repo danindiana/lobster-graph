@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.6.1] — 2026-06-05
+
+### Added
+- **OCR Fallback**: Implemented a fully local Tesseract OCR fallback for scanned/image-only PDFs via `pymupdf`, configured dynamically with `--ocr-min-chars`, and an on-disk `.ocr_cache/` that is immune to `neo4j` sync interference.
+- **JSON-Sidecar Extraction**: Updated LLM prompts to output structured `json` blocks for logic/cpp extraction. Implemented opportunistic JSON parsing in `neo4j_importer.py` to bypass brittle markdown scraping.
+- **Full CI Test Suite**: Added `tests/` directory with `test_ocr_fallback.py`, `test_importer_parsers.py`, and `test_diagram_parser.py`. Integrated full dependency mocking in CI `pytest` via `.github/workflows/lint.yml`.
+- **Layperson Documentation**: Created `docs/OVERVIEW.md` explaining the hardware floor, features, and honest limitations for evaluating researchers.
+
+### Fixed
+- **Path-Traversal Security Hole**: Fixed an arbitrary path-traversal sibling vulnerability in the Python dashboard server (`server.py`) using `os.path.commonpath`.
+- **Zero-Swap Route Correction**: Changed the default Ollama port on `vram_resident_processor.py` for the C++ code model to `11435` so it actually engages dual-GPU zero-swap concurrency as originally intended.
+- **Portability Paths**: Removed multiple hardcoded paths inside Python and Rust components to rely on relative expansions and `sys.argv`.
+- **Neo4j Algorithm Parsing Bug**: Fixed a bug where `- **Invariant**:` was being erroneously matched and spun off as its own isolated algorithm node by implementing negative regex lookaheads.
+
+---
+
 ## [0.6.0] — 2026-06-04
 
 ### Added

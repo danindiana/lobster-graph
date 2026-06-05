@@ -5,6 +5,20 @@ remembering. Most recent entries first.
 
 ---
 
+## 2026-06-05 — Silent CI Skips due to Missing Dependencies
+
+**What happened:** We added a `pytest` suite for our OCR and markdown parsers to `.github/workflows/lint.yml`, but `test_ocr_fallback.py` and `test_diagram_parser.py` weren't actually running.
+**Root cause:** The test files had graceful degradation using `pytest.importorskip("fitz")` and `importorskip("requests")`. Because we forgot to explicitly install `pymupdf` and `requests` in the Ubuntu CI runner, the tests politely skipped execution instead of failing, leading to a "green" hollow build.
+**Fix:** Fully mirrored the local runtime environment inside the CI runner including `tesseract-ocr`, `pymupdf`, `requests`, and `Pillow`. Used `pytest -v` to explicitly monitor `SKIPPED` tests.
+
+---
+
+## 2026-06-05 — Path Traversal Sibling Directories via startswith()
+
+**What happened:** We tried to restrict static file serving to a `_processed` directory using `if not target_path.startswith(os.path.realpath(PROCESSED_PATH)): return None`.
+**Root cause:** Python's string `startswith` method does not enforce directory boundaries. A sibling directory named `_processed_secret` matches `startswith("_processed")`. This allows trivial path traversal to any adjacent sibling folder.
+**Fix:** Always use `os.path.commonpath([base_path, target_path]) == base_path` for boundary containment. 
+
 ## 2026-06-04 — HTML5 Canvas Engine Cannot Resolve CSS Variables
 
 **What happened:** We attempted to dynamically style `vis-network` graph nodes by passing CSS variables (`var(--color-concept)`) within the Javascript configuration object.
