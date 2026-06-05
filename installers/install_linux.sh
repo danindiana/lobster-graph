@@ -71,7 +71,7 @@ fi
 log "Checking Neo4j..."
 echo -e "Lobster Graph visualizer requires Neo4j graph database."
 echo -e "Recommended deployment via Docker:"
-echo -e "  ${BOLD}docker run -d -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password123 neo4j:latest${RESET}"
+echo -e "  ${BOLD}docker run -d --name paper-processor-neo4j -v \"\$(pwd)/neo4j_viz/data:/data\" -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password123 neo4j:latest${RESET}"
 
 echo -e "\n${GREEN}${BOLD}🎉 Setup Complete!${RESET}"
 echo -e "To start the application:"
