@@ -44,3 +44,4 @@ neo4j_viz/data/
 neo4j_viz/logs/
 neo4j_viz/import/
 neo4j_viz/plugins/
+.ocr_cache/

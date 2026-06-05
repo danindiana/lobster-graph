@@ -39,7 +39,7 @@ from typing import List, Optional, Tuple
 
 # ── Third-party imports ────────────────────────────────────────────────────
 try:
-    import fitz  # pymupdf
+    import fitz  # noqa: F401  (availability probe; OCR/extraction uses it via ocr_fallback)
 except ImportError:
     sys.exit("❌  pymupdf not installed.\n    Fix: pip install pymupdf --break-system-packages")
 
@@ -47,6 +47,14 @@ try:
     import requests
 except ImportError:
     sys.exit("❌  requests not installed.\n    Fix: pip install requests --break-system-packages")
+
+# Local-first OCR fallback for scanned / image-only PDFs (optional at runtime).
+from ocr_fallback import (
+    DEFAULT_DPI,
+    DEFAULT_LANG,
+    DEFAULT_MIN_CHARS,
+    extract_pages_with_ocr,
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -566,12 +574,9 @@ class Backend:
 # PDF  UTILITIES
 # ══════════════════════════════════════════════════════════════════════════════
 def extract_pages(pdf_path: Path) -> List[str]:
-    """Return list of text strings, one per page."""
-    doc   = fitz.open(str(pdf_path))
-    pages = [page.get_text("text") for page in doc]
-    doc.close()
-    # Drop blank pages
-    return [p for p in pages if p.strip()]
+    """Return list of non-empty page texts (back-compat: no OCR, native only)."""
+    pages, _ = extract_pages_with_ocr(pdf_path, mode="never")
+    return pages
 
 
 def select_model(page_count: int, user_override: Optional[str]) -> str:
@@ -728,6 +733,10 @@ class PaperProcessor:
         forced_code_model: Optional[str] = None,
         reprocess: Optional[str] = None,
         verbose: bool = False,
+        ocr_mode: str = "auto",
+        ocr_min_chars: int = DEFAULT_MIN_CHARS,
+        ocr_dpi: int = DEFAULT_DPI,
+        ocr_lang: str = DEFAULT_LANG,
     ):
         self.papers_dir        = papers_dir
         self.out_root          = papers_dir / "_processed"
@@ -737,6 +746,10 @@ class PaperProcessor:
         self.forced_code_model = forced_code_model
         self.reprocess    = reprocess  # section name or "all"
         self.verbose      = verbose
+        self.ocr_mode      = ocr_mode
+        self.ocr_min_chars = ocr_min_chars
+        self.ocr_dpi       = ocr_dpi
+        self.ocr_lang      = ocr_lang
         self.out_root.mkdir(exist_ok=True)
 
     # ── Utilities ─────────────────────────────────────────────────────────
@@ -811,7 +824,17 @@ class PaperProcessor:
         print(f"  📄  {pdf_path.name}")
 
         # ── Extract & chunk ───────────────────────────────────────────────
-        pages      = extract_pages(pdf_path)
+        # Hash first so the OCR cache key is stable across re-runs.
+        paper_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()[:16]
+        pages, ocr_stats = extract_pages_with_ocr(
+            pdf_path,
+            mode=self.ocr_mode,
+            min_chars=self.ocr_min_chars,
+            dpi=self.ocr_dpi,
+            lang=self.ocr_lang,
+            paper_hash=paper_hash,
+            cache_dir=paper_dir / ".ocr_cache",
+        )
         page_count = len(pages)
         model      = select_model(page_count, self.forced_model)
         code_model = self.forced_code_model or self.forced_model or CODE_MODEL
@@ -824,12 +847,12 @@ class PaperProcessor:
         )
 
         print(f"     pages={page_count}  chunks={len(chunks)}")
+        if ocr_stats.ocr_used or ocr_stats.cached_pages:
+            print(f"     ocr={ocr_stats.summary()}")
         print(f"     model={model}")
         print(f"     code_model={code_model}")
         print(f"     strategy={strategy}")
 
-        # Compute once — used for checkpoints throughout
-        paper_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()[:16]
         completed: List[str] = list(meta.sections_completed) if meta else []
 
         def _checkpoint():
@@ -1196,6 +1219,24 @@ def main():
         "--code-url", default=None, metavar="URL",
         help="Ollama backend URL for code model (default: CODE_OLLAMA_URL or http://localhost:11434)",
     )
+    ap.add_argument(
+        "--ocr", choices=["auto", "always", "never"], default="auto", metavar="MODE",
+        help="OCR fallback for scanned PDFs: auto (OCR low-text pages), "
+             "always (OCR every page), never (disable) [default: auto]",
+    )
+    ap.add_argument(
+        "--ocr-min-chars", type=int, default=DEFAULT_MIN_CHARS, metavar="N",
+        help=f"Pages with fewer than N native chars are OCR'd in auto mode "
+             f"[default: {DEFAULT_MIN_CHARS}]",
+    )
+    ap.add_argument(
+        "--ocr-dpi", type=int, default=DEFAULT_DPI, metavar="DPI",
+        help=f"Rasterisation DPI passed to Tesseract [default: {DEFAULT_DPI}]",
+    )
+    ap.add_argument(
+        "--ocr-lang", default=DEFAULT_LANG, metavar="LANG",
+        help=f"Tesseract language pack(s), e.g. 'eng' or 'eng+deu' [default: {DEFAULT_LANG}]",
+    )
     args = ap.parse_args()
 
     if args.workers < 1:
@@ -1321,6 +1362,10 @@ def main():
         forced_code_model = args.code_model,
         reprocess         = args.reprocess,
         verbose           = args.verbose,
+        ocr_mode      = args.ocr,
+        ocr_min_chars = args.ocr_min_chars,
+        ocr_dpi       = args.ocr_dpi,
+        ocr_lang      = args.ocr_lang,
     )
 
     # ── Spawn periodic database sync background thread ───────────────────────

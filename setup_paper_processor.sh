@@ -29,6 +29,8 @@ sudo apt-get install -y \
     graphviz-dev      \
     python3-pip       \
     python3-venv      \
+    tesseract-ocr     \
+    tesseract-ocr-eng \
     || fail "apt-get install failed"
 ok "System packages installed"
 
@@ -46,6 +48,14 @@ if command -v dot &>/dev/null; then
     ok "graphviz: ${DOT_VER}"
 else
     warn "dot not found in PATH — SVG rendering will be skipped"
+fi
+
+# ── 3b. Verify Tesseract OCR ───────────────────────────────────────────────
+if command -v tesseract &>/dev/null; then
+    TESS_VER=$(tesseract -v 2>&1 | head -1)
+    ok "tesseract: ${TESS_VER}"
+else
+    warn "tesseract not found in PATH — OCR fallback will be skipped"
 fi
 
 # ── 4. Verify Ollama ───────────────────────────────────────────────────────
