@@ -910,7 +910,10 @@
       const options = {
         nodes: {
           borderWidth: 2,
-          shadow: true
+          shadow: false
+        },
+        layout: {
+          improvedLayout: false
         },
         edges: {
           width: 1.5,
@@ -931,7 +934,8 @@
         },
         interaction: {
           hover: true,
-          tooltipDelay: 200
+          tooltipDelay: 200,
+          hideEdgesOnDrag: true
         }
       };
 
@@ -1728,7 +1732,7 @@
             strokeWidth: match ? (isLight ? 2 : 0) : 0,
             strokeColor: match ? (isLight ? "rgba(255,255,255,0.8)" : "transparent") : "transparent"
           },
-          shadow: match ? { enabled: true, color: isLight ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.6)", size: 10, x: 2, y: 2 } : { enabled: false }
+          shadow: (match && (q || selectedNodeIds.length > 0)) ? { enabled: true, color: isLight ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.6)", size: 10, x: 2, y: 2 } : { enabled: false }
         };
       });
 
