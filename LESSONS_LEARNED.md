@@ -168,3 +168,30 @@ just fork READMEs, so they survive across the project history.
 
 Both GPUs (RTX 5080 16 GB + RTX 3080 10 GB, ~26 GB combined) are required for xl-tier models.
 Keep `OLLAMA_MAX_LOADED_MODELS=1` when running xl-tier to avoid VRAM contention.
+
+---
+
+## 2026-06-04 — Vis.js Canvas Rendering and CSS Variables
+
+**What happened:** When building the Dark/Light mode toggle for the Neo4j visualization dashboard, the HTML DOM elements (like panels and text) updated colors perfectly using CSS variables, but the actual nodes in the physics graph remained unchanged or disappeared entirely.
+
+**Root cause:** Vis.js renders the physics network using an HTML5 `<canvas>`. The canvas rendering engine completely ignores CSS classes and CSS `var(--color-x)` properties. If you pass a CSS variable into the node definition, it silently fails.
+
+**Fix/Lesson:** Colors in canvas-based libraries must be passed as hardcoded hexadecimal strings (`#FF0000`). To implement theming, the JavaScript toggle function must actively iterate through the dataset, reassign explicit hex values to every node and edge, and call `.update()`.
+
+---
+
+## 2026-06-04 — Idempotent Neo4j Graph Synchronization
+
+**What happened:** We implemented a 5-minute automated background worker in `vram_resident_processor.py` to continuously push newly processed papers into the Neo4j database. Initially, the sync script cleared the database (`DETACH DELETE n`) before rebuilding it. This caused the live web dashboard to flash blank every 5 minutes.
+
+**Lesson:** Background synchronization scripts must be completely idempotent. By rewriting the Cypher queries to use `MERGE` instead of `CREATE` or `DELETE`, the script can safely run repeatedly against the live database. It seamlessly updates existing properties and inserts new nodes without destroying the current layout state, making the live update invisible to the end user.
+
+---
+
+## 2026-06-04 — Dockerized Neo4j Binary Snapshots
+
+**What happened:** We needed a way to safely backup the Neo4j database natively to a `.dump` file. Running `neo4j-admin database dump` requires the database container to be stopped. When we spawned a temporary container to mount the host backup folder and execute the dump, we hit `AccessDeniedException` because the internal `neo4j` user lacked write permissions to the host's volume.
+
+**Lesson:** Bypassing Docker volume permission mappings is easiest using `stdout`. Instead of fighting permissions, we instructed the temporary Neo4j container to dump the binary file directly to `--to-stdout` and used the host's bash shell to redirect that stream into a local file: 
+`docker run --rm --volumes-from container neo4j neo4j-admin database dump neo4j --to-stdout > backup.dump`. This flawlessly bypassed volume restrictions.
