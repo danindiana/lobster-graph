@@ -90,6 +90,7 @@ def manage_visualization():
         "Start Visualization Services (Neo4j + Web Server)",
         "Stop Visualization Services",
         "Restart Services",
+        "Create Native Database Snapshot (.dump)",
         "Return to Main Menu"
     ], default_val=1)
     
@@ -155,6 +156,14 @@ def manage_visualization():
         print(f"\n  ✅ Services restarted successfully!")
         time.sleep(2)
         
+    elif action == 4:
+        print(f"\n  🔄 Creating Native Database Snapshot...")
+        try:
+            subprocess.run(["bash", "snapshot_db.sh"])
+        except Exception as e:
+            print(f"  ❌ Error running snapshot script: {e}")
+        input(f"\n  Press Enter to continue...")
+
     # Return to main menu recursively
     main()
 

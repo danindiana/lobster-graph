@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.6.0] — 2026-06-04
 
 ### Added
+- **Graph State Portability (Save/Load)**: Added "Save State" and "Load State" capabilities to the web dashboard. Captures `(x, y)` physics layout positions into `.json` so offline users can load the graph exactly as it was laid out without needing the Neo4j database.
+- **Native Database Snapshots**: Built `snapshot_db.sh` to safely pause Neo4j, dump the raw binary data (`neo4j-admin database dump`), and instantly restart it. Added support for this to the `vram_wizard.py` control center.
+- **Cross-Platform Deployments**: Engineered completely automated `installers/` stack for Linux (NVIDIA/apt), macOS (Homebrew), and Windows (Winget), seamlessly handling system deps, Python venvs, and Ollama installation.
 - **Dark/Light Mode Toggle**: Added a seamless theme toggle to the graph dashboard, dynamically re-rendering node/edge colors and UI panels without requiring a page reload.
 - **Automated Graph Synchronization**: Integrated a 5-minute periodic background worker in `vram_resident_processor.py` to seamlessly sync newly processed papers into Neo4j.
 - **Repository Migration**: Promoted the graph processing visualization into a dedicated standalone repository (`danindiana/lobster-graph`) with comprehensive documentation and badges.

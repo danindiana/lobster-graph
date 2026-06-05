@@ -25,7 +25,9 @@ This repository includes a specialized **VRAM Concurrent Resident Fork** and a s
 
 * **`paper_processor.py` (Main)**: Sequential single-instance processing.
 * **`vram_resident_processor.py` (Concurrent Fork)**: Multi-endpoint routing script optimized to run split model endpoints simultaneously, eliminating VRAM loading churn.
-* **`vram_wizard.py` (CLI Wizard)**: Interactive Python terminal dashboard tool to configure directories, endpoints, scope, and launch processes.
+* **`neo4j_viz/` (Dashboard Web App)**: Real-time Neo4j interactive visualization interface supporting Light/Dark modes, Graphviz SVG rendering, and completely offline portable `.json` graph state exports.
+* **`installers/` & `snapshot_db.sh`**: Multi-platform deployment tools (`apt`, `brew`, `winget`) and native Neo4j snapshot management.
+* **`vram_wizard.py` (CLI Wizard)**: Interactive Python terminal dashboard tool to configure directories, endpoints, scope, launch processes, and create database snapshots.
 * **`telemetry_monitor.py` (Profiler)**: Zero-dependency live CPU, RAM, Disk, and dual-GPU telemetry terminal monitor.
 * **`wizard/` (TUI Wizard)**: Rust-based Ratatui terminal dashboard that scans the corpus, configures runs, and streams logs with ANSI syntax highlighting.
 
