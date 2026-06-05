@@ -1,5 +1,9 @@
 # Architecture
 
+<p align="center">
+  <img src="diagrams/explainer/architecture_dataflow.svg" alt="Data Flow Architecture">
+</p>
+
 ## Overview
 
 paper-processor is a two-component system:

@@ -1,0 +1,66 @@
+digraph dataflow {
+  graph [bgcolor="black" rankdir=TB fontname="Courier New"
+         label="Lobster Graph — End-to-End Data Flow"
+         labelloc=t fontcolor="#00FF41" fontsize=18 pad=0.5 nodesep=0.4 ranksep=0.55];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=11 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=9 penwidth=2.0 color="#FF00FF" fontcolor="#DA70FF"];
+
+  pdfs [label="PDF corpus\n(papers_dir/*.pdf)" shape=folder color="#FFFF00" fontcolor="#FFFF00"];
+
+  subgraph cluster_extract {
+    label="1. Extract"; fontcolor="#00FFFF"; color="#00FFFF"; style=dashed;
+    extract [label="PyMuPDF\npage.get_text()" shape=cylinder color="#00FFFF" fontcolor="#00FFFF"];
+    ocrq    [label="page < 100 chars?" shape=diamond color="#FF6600" fontcolor="#FF6600"];
+    ocr     [label="Tesseract OCR\nfallback (local)" shape=box3d color="#FF6600" fontcolor="#FF6600"];
+  }
+
+  subgraph cluster_chunk {
+    label="2. Chunk / Condense"; fontcolor="#7FFF00"; color="#7FFF00"; style=dashed;
+    sizeq  [label="> 12 pages?" shape=diamond color="#7FFF00" fontcolor="#7FFF00"];
+    single [label="single-pass\ncontext" shape=note color="#7FFF00" fontcolor="#7FFF00"];
+    mapred [label="sliding-window\nmap-reduce\n(window 12, overlap 2)" shape=box color="#7FFF00" fontcolor="#7FFF00"];
+  }
+
+  route [label="select_model()\nby page count" shape=hexagon color="#FF0055" fontcolor="#FF0055"];
+
+  subgraph cluster_llm {
+    label="3. Local LLM (Ollama)"; fontcolor="#FF6600"; color="#FF6600"; style=dashed;
+    primary [label="primary model\nGPU 0 :11434" shape=doubleoctagon color="#FF6600" fontcolor="#FF6600"];
+    codem   [label="code model\nGPU 1 :11435" shape=doubleoctagon color="#00FF41" fontcolor="#00FF41"];
+  }
+
+  subgraph cluster_sections {
+    label="4. Five Per-Paper Sections"; fontcolor="#DA70FF"; color="#DA70FF"; style=dashed;
+    s1 [label="01_summary.md" shape=note color="#00FFFF" fontcolor="#00FFFF"];
+    s2 [label="02_symbolic_logic.md" shape=note color="#00FFFF" fontcolor="#00FFFF"];
+    s3 [label="03_cpp_examples.md" shape=note color="#00FF41" fontcolor="#00FF41"];
+    s4 [label="diagrams/*.dot+svg\n(6 neon graphs)" shape=note color="#FFFF00" fontcolor="#FFFF00"];
+    s5 [label="04_extras.md" shape=note color="#00FFFF" fontcolor="#00FFFF"];
+  }
+
+  meta [label="metadata.json\n(hash, model, sections_completed)\n→ resume on interrupt" shape=component color="#7FFF00" fontcolor="#7FFF00"];
+
+  subgraph cluster_graph {
+    label="5. Knowledge Graph"; fontcolor="#0080FF"; color="#0080FF"; style=dashed;
+    importer [label="neo4j_importer.py\nMERGE (idempotent)" shape=box color="#0080FF" fontcolor="#0080FF"];
+    neo4j    [label="Neo4j\nbolt://:7687" shape=cylinder color="#0080FF" fontcolor="#0080FF"];
+    dash     [label="dashboard server.py\nvis.js :8585" shape=box3d color="#0080FF" fontcolor="#0080FF"];
+  }
+
+  pdfs -> extract;
+  extract -> ocrq;
+  ocrq -> ocr [label="yes"];
+  ocrq -> sizeq [label="no"];
+  ocr  -> sizeq [label="recovered text"];
+  sizeq -> single [label="no"];
+  sizeq -> mapred [label="yes"];
+  single -> route; mapred -> route;
+  route -> primary [label="summary/logic/\ndiagrams/extras"];
+  route -> codem   [label="cpp section" color="#00FF41" fontcolor="#00FF41"];
+  primary -> s1; primary -> s2; primary -> s4; primary -> s5;
+  codem -> s3 [color="#00FF41"];
+  s1 -> meta [style=dotted]; s2 -> meta [style=dotted]; s3 -> meta [style=dotted];
+  s4 -> meta [style=dotted]; s5 -> meta [style=dotted];
+  s1 -> importer; s2 -> importer; s3 -> importer; s4 -> importer; s5 -> importer;
+  importer -> neo4j -> dash;
+}

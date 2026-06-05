@@ -1,0 +1,49 @@
+digraph howto {
+  graph [bgcolor="black" rankdir=TB fontname="Courier New"
+         label="Lobster Graph — Operator HOWTO (First Run)"
+         labelloc=t fontcolor="#00FF41" fontsize=17 pad=0.5 ranksep=0.5 nodesep=0.4];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=10 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=9 penwidth=2.0 color="#FF00FF"];
+
+  start [label="START" shape=circle color="#00FF41" fontcolor="#00FF41"];
+
+  setup [label="bash setup_paper_processor.sh\n(graphviz, tesseract, pip, rust)" shape=box color="#00FFFF" fontcolor="#00FFFF"];
+  pull  [label="ollama pull <models>\n(nemotron / qwen3-coder / deepseek-r1)" shape=box color="#00FFFF" fontcolor="#00FFFF"];
+
+  dualq [label="dual-GPU\nzero-swap?" shape=diamond color="#FF6600" fontcolor="#FF6600"];
+  split [label="./start_isolated_backends.sh\nGPU0:11434  GPU1:11435" shape=box3d color="#FF6600" fontcolor="#FF6600"];
+  serve [label="ollama serve\n(single endpoint :11434)" shape=box3d color="#FF6600" fontcolor="#FF6600"];
+
+  list  [label="paper_processor.py --list\n(triage corpus status)" shape=note color="#7FFF00" fontcolor="#7FFF00"];
+
+  howrun [label="how to run?" shape=diamond color="#DA70FF" fontcolor="#DA70FF"];
+  wizard [label="./vram_wizard.py\nor paper-wizard (TUI)" shape=box color="#DA70FF" fontcolor="#DA70FF"];
+  direct [label="python3 -u paper_processor.py [dir]\n[-s] [--paper f.pdf] [--workers N]" shape=box color="#DA70FF" fontcolor="#DA70FF"];
+
+  run   [label="pipeline runs\n5 sections/paper + checkpoints" shape=component color="#00FF41" fontcolor="#00FF41"];
+
+  intq  [label="interrupted?" shape=diamond color="#FF0055" fontcolor="#FF0055"];
+  resume[label="re-run same command\n→ resumes via metadata.json" shape=box color="#FF0055" fontcolor="#FF0055"];
+
+  graphq [label="explore graph?" shape=diamond color="#0080FF" fontcolor="#0080FF"];
+  neo    [label="docker compose up (neo4j)\n+ python server.py  → :8585" shape=box color="#0080FF" fontcolor="#0080FF"];
+  snap   [label="./snapshot_db.sh\n(backup .dump)" shape=note color="#0080FF" fontcolor="#0080FF"];
+
+  done  [label="DONE\ndossiers + graph" shape=doublecircle color="#00FF41" fontcolor="#00FF41"];
+
+  start -> setup -> pull -> dualq;
+  dualq -> split [label="yes"];
+  dualq -> serve [label="no / single GPU"];
+  split -> list; serve -> list;
+  list -> howrun;
+  howrun -> wizard [label="guided"];
+  howrun -> direct [label="scripted"];
+  wizard -> run; direct -> run;
+  run -> intq;
+  intq -> resume [label="yes"];
+  resume -> run;
+  intq -> graphq [label="no / complete"];
+  graphq -> neo [label="yes"];
+  graphq -> done [label="no"];
+  neo -> snap -> done;
+}

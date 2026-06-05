@@ -106,6 +106,10 @@ To configure your run options, pick papers, choose models, and run:
 ./vram_wizard.py
 ```
 
+<p align="center">
+  <img src="docs/diagrams/explainer/howto_quickstart.svg" alt="Quickstart Flowchart">
+</p>
+
 ### 4. Running the Telemetry Monitor
 To check GPU core load, temperature, power, and Ollama VRAM allocations in real-time:
 ```bash
@@ -142,6 +146,14 @@ python vram_resident_processor.py [papers_dir] [flags]
 | [`vram_resident_processor.py`](vram_resident_processor.py) | **Zero-Swap Concurrency** | Pinned dual-endpoint routing utilizing GPU 0 (distill-q8_0) and GPU 1 (coder-14b) concurrently. |
 | [`fork_2026-05-15T235801Z/`](fork_2026-05-15T235801Z/) | **Performance Optimization** | Configurable context window size, KV cache, and Flash Attention tweaks. |
 | [`fork_gptOSS_textonly_2026-05-14T205304Z/`](fork_gptOSS_textonly_2026-05-14T205304Z/) | **Text-Only Gemma Eviction** | Replaces Gemma 31B vision model with text-only `gpt-oss:20b`, saving ~6 GB VRAM. |
+
+---
+
+## Roadmap
+
+<p align="center">
+  <img src="docs/diagrams/explainer/future_directions.svg" alt="Future Directions Roadmap">
+</p>
 
 ---
 

@@ -1,5 +1,9 @@
 # Lessons Learned — paper_processor
 
+<p align="center">
+  <img src="docs/diagrams/explainer/lessons_learned.svg" alt="Lessons Learned Reference Card">
+</p>
+
 A running log of non-obvious findings, debugging dead-ends, and design decisions worth
 remembering. Most recent entries first.
 

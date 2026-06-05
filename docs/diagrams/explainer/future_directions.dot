@@ -1,0 +1,40 @@
+digraph future {
+  graph [bgcolor="black" rankdir=LR fontname="Courier New"
+         label="Lobster Graph — Future Directions Roadmap (impact × effort)"
+         labelloc=t fontcolor="#00FF41" fontsize=17 pad=0.5 ranksep=0.9 nodesep=0.3];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=10 penwidth=2.0 shape=box];
+  edge  [style=invis];
+
+  subgraph cluster_done {
+    label="✓ Shipped"; fontcolor="#00FF41"; color="#00FF41"; style=dashed;
+    d1 [label="parallel sections\nafter map-reduce" color="#00FF41" fontcolor="#00FF41"];
+    d2 [label="route long papers\nto larger-ctx GPU" color="#00FF41" fontcolor="#00FF41"];
+    d3 [label="diagram stage uses\ncode model" color="#00FF41" fontcolor="#00FF41"];
+    d4 [label="zero-swap split\nendpoints (:11435)" color="#00FF41" fontcolor="#00FF41"];
+    d5 [label="local Tesseract\nOCR fallback" color="#00FF41" fontcolor="#00FF41"];
+    d6 [label="idempotent MERGE\ngraph sync" color="#00FF41" fontcolor="#00FF41"];
+    d7 [label="JSON-sidecar\nextraction" color="#00FF41" fontcolor="#00FF41"];
+    d1->d2->d3->d4->d5->d6->d7;
+  }
+
+  subgraph cluster_near {
+    label="◐ Near-Term (high impact)"; fontcolor="#FFFF00"; color="#FFFF00"; style=dashed;
+    n2 [label="harden importer regex\n(drift: *bold*, em-dash)" color="#FFFF00" fontcolor="#FFFF00"];
+    n3 [label="GPU thermal-aware\nscheduling" color="#FFFF00" fontcolor="#FFFF00"];
+    n4 [label="--dry-run cost /\ntime estimator" color="#FFFF00" fontcolor="#FFFF00"];
+    n2->n3->n4;
+  }
+
+  subgraph cluster_far {
+    label="○ Exploratory (research)"; fontcolor="#DA70FF"; color="#DA70FF"; style=dashed;
+    f1 [label="embeddings-based\nconcept linking\n(replace substring match)" color="#DA70FF" fontcolor="#DA70FF"];
+    f2 [label="provenance tracking\n+ stale-node cleanup" color="#DA70FF" fontcolor="#DA70FF"];
+    f3 [label="true multimodal\n(figures via pixmap)" color="#DA70FF" fontcolor="#DA70FF"];
+    f4 [label="cross-corpus\ncitation graph" color="#DA70FF" fontcolor="#DA70FF"];
+    f1->f2->f3->f4;
+  }
+
+  // alignment edges between clusters (visible, dotted)
+  d7 -> n2 [style=dotted color="#00FFFF" constraint=false];
+  n4 -> f1 [style=dotted color="#00FFFF" constraint=false];
+}

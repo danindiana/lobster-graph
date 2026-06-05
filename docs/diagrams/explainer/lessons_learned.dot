@@ -1,0 +1,49 @@
+digraph lessons {
+  graph [bgcolor="black" rankdir=LR fontname="Courier New"
+         label="Lobster Graph — Lessons Learned (Pitfall → Root Cause → Rule)"
+         labelloc=t fontcolor="#00FF41" fontsize=17 pad=0.5 ranksep=1.1 nodesep=0.3];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=10 penwidth=2.0 shape=box];
+  edge  [fontname="Courier New" fontsize=9 penwidth=1.8 color="#FF00FF"];
+
+  // Column headers (invisible structure via rank)
+  subgraph cluster_pit {
+    label="⚠ Pitfall"; fontcolor="#FF0055"; color="#FF0055"; style=dashed;
+    p1 [label="vis.js nodes render\nblack / vanish" color="#FF0055" fontcolor="#FF0055"];
+    p2 [label="dashboard flashes\nblank every 5 min" color="#FF0055" fontcolor="#FF0055"];
+    p3 [label="Ratatui model picker\nshows no rows" color="#FF0055" fontcolor="#FF0055"];
+    p4 [label="vision model loaded\nbut never used" color="#FF0055" fontcolor="#FF0055"];
+    p5 [label="-s flag missing in\nfork_* directory" color="#FF0055" fontcolor="#FF0055"];
+    p6 [label="silent output for\nminutes when piped" color="#FF0055" fontcolor="#FF0055"];
+    p7 [label="neo4j-admin dump\nAccessDenied" color="#FF0055" fontcolor="#FF0055"];
+  }
+
+  subgraph cluster_cause {
+    label="🔍 Root Cause"; fontcolor="#FFFF00"; color="#FFFF00"; style=dashed;
+    c1 [label="canvas engine cannot\nresolve CSS var()" color="#FFFF00" fontcolor="#FFFF00"];
+    c2 [label="sync did DETACH DELETE\nbefore rebuild" color="#FFFF00" fontcolor="#FFFF00"];
+    c3 [label="Paragraph drops lines\nwider than widget" color="#FFFF00" fontcolor="#FFFF00"];
+    c4 [label="extract is text-only;\nno images field sent" color="#FFFF00" fontcolor="#FFFF00"];
+    c5 [label="forks are frozen copies,\nno .git, diverge" color="#FFFF00" fontcolor="#FFFF00"];
+    c6 [label="Python buffers stdout\nwhen not a TTY" color="#FFFF00" fontcolor="#FFFF00"];
+    c7 [label="container user lacks\nhost volume write" color="#FFFF00" fontcolor="#FFFF00"];
+  }
+
+  subgraph cluster_rule {
+    label="✓ Rule / Fix"; fontcolor="#00FF41"; color="#00FF41"; style=dashed;
+    r1 [label="pass hex colors;\nJS .update() to theme" color="#00FF41" fontcolor="#00FF41"];
+    r2 [label="MERGE + SET +=\nmake sync idempotent" color="#00FF41" fontcolor="#00FF41"];
+    r3 [label="use List+ListState\nfor selectable rows" color="#00FF41" fontcolor="#00FF41"];
+    r4 [label="vision needs pixmap+\nbase64 images field" color="#00FF41" fontcolor="#00FF41"];
+    r5 [label="always run from\nproject root" color="#00FF41" fontcolor="#00FF41"];
+    r6 [label="python3 -u or run\ninside a terminal" color="#00FF41" fontcolor="#00FF41"];
+    r7 [label="dump --to-stdout,\nredirect on host" color="#00FF41" fontcolor="#00FF41"];
+  }
+
+  p1 -> c1 -> r1;
+  p2 -> c2 -> r2 [color="#00FFFF"];
+  p3 -> c3 -> r3;
+  p4 -> c4 -> r4 [color="#00FFFF"];
+  p5 -> c5 -> r5;
+  p6 -> c6 -> r6 [color="#00FFFF"];
+  p7 -> c7 -> r7;
+}
