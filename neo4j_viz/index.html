@@ -1100,8 +1100,8 @@
       // Update edges (nodes are handled by filterGraph)
       const newEdges = rawEdges.map(e => ({
         id: e.id,
-        color: { color: isLight ? "rgba(0,0,0,0.15)" : "rgba(255, 255, 255, 0.12)" },
-        font: { color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)" }
+        color: { color: isLight ? "rgba(0,0,0,0.3)" : "rgba(255, 255, 255, 0.12)" },
+        font: { color: isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.3)" }
       }));
       edgesDataset.update(newEdges);
 
@@ -1110,27 +1110,39 @@
 
     function filterGraph() {
       const q = document.getElementById("search-input").value.toLowerCase();
-      if (!q) {
-        nodesDataset.update(rawNodes);
-        return;
-      }
-
       const isLight = document.body.classList.contains('light-mode');
-      const filtered = rawNodes.map(node => {
-        const match = node.title.toLowerCase().includes(q) || 
+
+      const updatedNodes = rawNodes.map(node => {
+        const match = !q || node.title.toLowerCase().includes(q) || 
                       (node.properties.definition && node.properties.definition.toLowerCase().includes(q)) ||
                       (node.properties.motivation && node.properties.motivation.toLowerCase().includes(q));
+                      
         return {
           id: node.id,
           color: {
-            background: match ? (isLight ? "rgba(255, 255, 255, 0.9)" : "rgba(9, 13, 22, 0.9)") : (isLight ? "rgba(0,0,0,0.05)" : "rgba(15, 23, 42, 0.1)"),
-            border: match ? node.color.border : (isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.02)")
+            background: match ? (isLight ? "#ffffff" : "rgba(9, 13, 22, 0.9)") : (isLight ? "rgba(0,0,0,0.05)" : "rgba(15, 23, 42, 0.1)"),
+            border: match ? (isLight ? darkenColor(node.color.border, 20) : node.color.border) : (isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.02)")
           },
-          font: { color: match ? (isLight ? "#0f172a" : "#e2e8f0") : (isLight ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.08)") }
+          font: { 
+            color: match ? (isLight ? "#0f172a" : "#e2e8f0") : (isLight ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.08)"),
+            strokeWidth: match ? (isLight ? 2 : 0) : 0,
+            strokeColor: match ? (isLight ? "rgba(255,255,255,0.8)" : "transparent") : "transparent"
+          },
+          shadow: match ? { enabled: true, color: isLight ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.6)", size: 10, x: 2, y: 2 } : { enabled: false }
         };
       });
 
-      nodesDataset.update(filtered);
+      nodesDataset.update(updatedNodes);
+    }
+
+    // Helper to darken hex colors for light mode contrast
+    function darkenColor(hex, percent) {
+      if (!hex || !hex.startsWith('#')) return hex;
+      let num = parseInt(hex.slice(1), 16), amt = Math.round(2.55 * percent),
+          r = (num >> 16) - amt, g = (num >> 8 & 0x00FF) - amt, b = (num & 0x0000FF) - amt;
+      return "#" + (0x1000000 + (r < 255 ? r < 1 ? 0 : r : 255) * 0x10000 + 
+                   (g < 255 ? g < 1 ? 0 : g : 255) * 0x100 + 
+                   (b < 255 ? b < 1 ? 0 : b : 255)).toString(16).slice(1);
     }
 
     function escapeHtml(text) {
