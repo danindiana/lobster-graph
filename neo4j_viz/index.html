@@ -712,6 +712,7 @@
     document.getElementById("db-url").value = "bolt://" + window.location.hostname + ":7687";
 
     let driver = null;
+    let graphWorker = null;
     let nodesDataset = new vis.DataSet([]);
     let edgesDataset = new vis.DataSet([]);
     let network = null;
@@ -745,103 +746,70 @@
       const pass = document.getElementById("db-pass").value;
       const dataset = document.getElementById("dataset-select").value;
 
+      if (!graphWorker) {
+          graphWorker = new Worker("worker.js");
+          graphWorker.onmessage = function(e) {
+              if (e.data.type === 'CONNECTED') {
+                  document.getElementById("connection-overlay").style.display = "none";
+                  
+                  // Load data gracefully over time via worker stream
+                  graphWorker.postMessage({ type: 'FETCH_GRAPH', isLight: document.body.classList.contains('light-mode') });
+                  
+                  // Trigger server sync in background, which will update graph again if changes occur
+                  fetch('/api/sync').then(() => {
+                      graphWorker.postMessage({ type: 'FETCH_GRAPH', isLight: document.body.classList.contains('light-mode') });
+                  }).catch(err => console.error(err));
+              } else if (e.data.type === 'BATCH') {
+                  if (!network) drawNetwork();
+                  
+                  const newNodes = e.data.nodes.filter(n => !nodesDataset.get(n.id));
+                  const newEdges = e.data.edges.filter(e => !edgesDataset.get(e.id));
+                  
+                  if (newNodes.length > 0) {
+                      rawNodes.push(...newNodes);
+                      nodesDataset.add(newNodes);
+                  }
+                  if (newEdges.length > 0) {
+                      rawEdges.push(...newEdges);
+                      edgesDataset.add(newEdges);
+                  }
+                  
+                  document.getElementById("count-papers").textContent = e.data.pCount;
+                  document.getElementById("count-concepts").textContent = e.data.cCount;
+                  document.getElementById("count-relations").textContent = rawEdges.length;
+                  
+                  // Pulse to show activity
+                  const btn = document.getElementById("live-sync-btn");
+                  btn.style.color = "#a7f3d0";
+                  setTimeout(() => { btn.style.color = "#6ee7b7"; }, 500);
+
+                  filterGraph(); // Re-apply UI filters to new nodes
+              } else if (e.data.type === 'DONE') {
+                  console.log("Graph stream complete.");
+              } else if (e.data.type === 'ERROR') {
+                  alert("Worker Error: " + e.data.error);
+                  console.error(e.data.error);
+              }
+          };
+      }
+
       try {
-        // Update backend with target dataset
         await fetch('/api/set_dataset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: dataset })
         });
 
+        // Initialize driver on main thread just for single node queries (fetchNodeDetails)
         driver = neo4j.driver(url, neo4j.auth.basic(user, pass));
-        await driver.verifyConnectivity();
-        document.getElementById("connection-overlay").style.display = "none";
         
-        // Trigger initial import in the background and then load
-        fetch('/api/sync').then(() => updateGraphData()).catch(e => console.error(e));
-        
-        // Load data from Neo4j (will show existing data while sync runs)
-        await loadGraphData();
+        graphWorker.postMessage({ type: 'CONNECT', uri: url, user: user, pass: pass });
       } catch (err) {
-        alert("Connection failed: " + err.message);
+        alert("Connection request failed: " + err.message);
         console.error(err);
       }
     }
 
-    async function loadGraphData() {
-      const session = driver.session();
-      try {
-        // Query to fetch all nodes and their relationships
-        const result = await session.run(`
-          MATCH (n)
-          OPTIONAL MATCH (n)-[r]->(m)
-          RETURN n, r, m
-        `);
-
-        const nodeMap = new Map();
-        const edges = [];
-        let paperCount = 0;
-        let conceptCount = 0;
-
-        result.records.forEach(record => {
-          const n = record.get("n");
-          const r = record.get("r");
-          const m = record.get("m");
-
-          if (n) {
-            const nId = n.identity.toString();
-            if (!nodeMap.has(nId)) {
-              nodeMap.set(nId, parseNode(n));
-              if (n.labels.includes("Paper")) paperCount++;
-              if (n.labels.includes("Concept")) conceptCount++;
-            }
-          }
-
-          if (m) {
-            const mId = m.identity.toString();
-            if (!nodeMap.has(mId)) {
-              nodeMap.set(mId, parseNode(m));
-              if (m.labels.includes("Paper")) paperCount++;
-              if (m.labels.includes("Concept")) conceptCount++;
-            }
-          }
-
-          if (r) {
-            const isLight = document.body.classList.contains('light-mode');
-            edges.push({
-              id: r.identity.toString(),
-              from: r.start.toString(),
-              to: r.end.toString(),
-              label: r.type,
-              font: { strokeWidth: 0, color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)", size: 10, face: "Outfit" },
-              arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-              color: { color: isLight ? "rgba(0,0,0,0.15)" : "rgba(255, 255, 255, 0.12)", highlight: "rgba(0, 229, 255, 0.4)" }
-            });
-          }
-        });
-
-        // Set counts
-        document.getElementById("count-papers").textContent = paperCount;
-        document.getElementById("count-concepts").textContent = conceptCount;
-        document.getElementById("count-relations").textContent = edges.length;
-
-        rawNodes = Array.from(nodeMap.values());
-        rawEdges = edges;
-
-        nodesDataset.clear();
-        nodesDataset.add(rawNodes);
-        edgesDataset.clear();
-        edgesDataset.add(rawEdges);
-
-        drawNetwork();
-
-      } catch (err) {
-        console.error(err);
-        alert("Error loading graph data: " + err.message);
-      } finally {
-        await session.close();
-      }
-    }
 
     function parseNode(node) {
       const id = node.identity.toString();
@@ -1497,75 +1465,13 @@
     }
 
     async function updateGraphData() {
-        const session = driver.session();
         try {
-            // Ask server to run neo4j_importer.py
-            try {
-               await fetch('/api/sync');
-            } catch (e) {
-               console.warn("Failed to trigger server sync:", e);
-            }
-            
-            // Fetch updated data
-            const result = await session.run(`
-                MATCH (n)
-                OPTIONAL MATCH (n)-[r]->(m)
-                RETURN n, r, m
-            `);
-            
-            const nodeMap = new Map();
-            const edges = [];
-            const isLight = document.body.classList.contains('light-mode');
-
-            result.records.forEach(record => {
-                const n = record.get('n');
-                if (n && !nodeMap.has(n.identity.toString())) {
-                    nodeMap.set(n.identity.toString(), parseNode(n));
-                }
-                const m = record.get('m');
-                if (m && !nodeMap.has(m.identity.toString())) {
-                    nodeMap.set(m.identity.toString(), parseNode(m));
-                }
-                const r = record.get('r');
-                if (r) {
-                    edges.push({
-                        id: r.identity.toString(),
-                        from: r.start.toString(),
-                        to: r.end.toString(),
-                        label: r.type,
-                        font: { strokeWidth: 0, color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)", size: 10, face: "Outfit" },
-                        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-                        color: { color: isLight ? "rgba(0,0,0,0.15)" : "rgba(255, 255, 255, 0.12)", highlight: "rgba(0, 229, 255, 0.4)" }
-                    });
-                }
-            });
-
-            // Count
-            let pCount = 0, cCount = 0;
-            nodeMap.forEach(v => {
-                if(v.type === "Paper") pCount++;
-                if(v.type === "Concept") cCount++;
-            });
-            document.getElementById("count-papers").textContent = pCount;
-            document.getElementById("count-concepts").textContent = cCount;
-            document.getElementById("count-relations").textContent = edges.length;
-
-            rawNodes = Array.from(nodeMap.values());
-            rawEdges = edges;
-
-            nodesDataset.update(rawNodes);
-            edgesDataset.update(rawEdges);
-            filterGraph();
-            
-            // Pulse the button to show sync activity
-            const btn = document.getElementById("live-sync-btn");
-            btn.style.color = "#a7f3d0";
-            setTimeout(() => { btn.style.color = "#6ee7b7"; }, 500);
-
-        } catch (err) {
-            console.error("Live sync error:", err);
-        } finally {
-            await session.close();
+            await fetch('/api/sync');
+        } catch (e) {
+            console.warn("Failed to trigger server sync:", e);
+        }
+        if (graphWorker) {
+            graphWorker.postMessage({ type: 'FETCH_GRAPH', isLight: document.body.classList.contains('light-mode') });
         }
     }
 
