@@ -594,7 +594,7 @@
         </div>
         <div class="control-row">
           <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
-          <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="pause" style="width: 14px; height: 14px;"></i>Pause</button>
+          <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON</button>
           <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
         </div>
         <div class="control-row" style="margin-top: 8px;">
@@ -825,10 +825,7 @@
             springLength: 90,
             springConstant: 0.08
           },
-          stabilization: {
-            iterations: 150,
-            updateInterval: 25
-          }
+          stabilization: false
         },
         interaction: {
           hover: true,
@@ -1078,9 +1075,9 @@
       
       const btn = document.getElementById("physics-btn");
       if (isPhysicsActive) {
-        btn.innerHTML = `<i data-lucide="pause" style="width: 14px; height: 14px;"></i>Pause Layout`;
+        btn.innerHTML = `<i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON`;
       } else {
-        btn.innerHTML = `<i data-lucide="play" style="width: 14px; height: 14px;"></i>Resume Layout`;
+        btn.innerHTML = `<i data-lucide="zap-off" style="width: 14px; height: 14px;"></i>Physics: OFF`;
       }
       lucide.createIcons();
     }
