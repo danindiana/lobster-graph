@@ -80,8 +80,8 @@ def parse_logic_theorems(text: str) -> list:
 def parse_logic_algorithms(text: str) -> list:
     """Parses pseudocode blocks."""
     algorithms = []
-    # Split text by - **Algorithm Name**:
-    pattern = r"-\s*\*\*([^*]+)\*\*:\s*"
+    # Split text by - **Algorithm Name**: but ignore - **Invariant**:
+    pattern = r"-\s*\*\*(?![Ii]nvariant\*\*)([^*]+)\*\*:\s*"
     parts = re.split(pattern, text)
     if len(parts) > 1:
         # parts[0] is intro text before the first algorithm

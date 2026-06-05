@@ -147,15 +147,6 @@ class TestParseLogicAlgorithms:
 
     # ── Genuine BUG (not mere brittleness) ─────────────────────────────────
     # The "- **Invariant**:" line is split by the same `- **Name**:` pattern,
-    # so the invariant becomes a bogus Algorithm node named "Invariant", and the
-    # real algorithm's `invariant` field is never populated.
-    #
-    # strict=True → this test FAILS THE BUILD the moment the bug is fixed,
-    # which is your cue to delete the xfail and assert the corrected behaviour
-    # (one algorithm, invariant attached, no "Invariant" node).
-    @pytest.mark.xfail(reason="BUG: '- **Invariant**:' parsed as its own algorithm; "
-                              "invariant never attached to its parent algorithm",
-                       strict=True)
     def test_invariant_should_attach_not_become_its_own_node(self):
         text = (
             "- **Newton's Method**:\n"
@@ -164,22 +155,9 @@ class TestParseLogicAlgorithms:
         )
         out = imp.parse_logic_algorithms(text)
         names = [a["name"] for a in out]
-        # Desired (post-fix) behaviour:
         assert "Invariant" not in names                 # no junk node
         assert len(out) == 1                            # exactly one algorithm
         assert out[0]["invariant"] != ""                # invariant attached
-
-    def test_bug_is_currently_present(self):
-        """Positive assertion of the CURRENT (buggy) behaviour, so the regression
-        is documented even while xfail above guards the fix."""
-        text = (
-            "- **Newton's Method**:\n"
-            "```pseudocode\nx -= 1\n```\n"
-            "- **Invariant**: stuff.\n"
-        )
-        out = imp.parse_logic_algorithms(text)
-        names = [a["name"] for a in out]
-        assert "Invariant" in names  # documents the bug as-is
 
 
 # ════════════════════════════════════════════════════════════════════════════
