@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Graph State Portability (Save/Load)**: Added "Save State" and "Load State" capabilities to the web dashboard. Captures `(x, y)` physics layout positions into `.json` so offline users can load the graph exactly as it was laid out without needing the Neo4j database.
+- **Interactive Physics Controls**: Added dedicated "Physics: ON" and "Stabilize: OFF" toggles to the web dashboard. Users can disable gravity on the fly or toggle the stabilization phase to watch the gravitational engine layout papers in real-time.
 - **Native Database Snapshots**: Built `snapshot_db.sh` to safely pause Neo4j, dump the raw binary data (`neo4j-admin database dump`), and instantly restart it. Added support for this to the `vram_wizard.py` control center.
 - **Cross-Platform Deployments**: Engineered completely automated `installers/` stack for Linux (NVIDIA/apt), macOS (Homebrew), and Windows (Winget), seamlessly handling system deps, Python venvs, and Ollama installation.
 - **Dark/Light Mode Toggle**: Added a seamless theme toggle to the graph dashboard, dynamically re-rendering node/edge colors and UI panels without requiring a page reload.
@@ -16,10 +17,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Repository Migration**: Promoted the graph processing visualization into a dedicated standalone repository (`danindiana/lobster-graph`) with comprehensive documentation and badges.
 
 ### Fixed
+- **Light Mode Visual Contrast**: Fixed an issue where the canvas neon border colors became unreadable against white backgrounds. Implemented an automatic ~20% color darkening algorithm and adaptive drop shadows for Light Mode nodes.
 - **Canvas CSS Variable Resolution**: Replaced CSS variables (`var(--color-concept)`) with hardcoded Hex values in `vis-network` configurations. This fixed a silent failure where the HTML5 Canvas could not parse CSS variables, resulting in broken/default node colors.
 - **Background Sync Database Drop**: Replaced a full database wipe (`MATCH (n) DETACH DELETE n`) with idempotent `MERGE` queries in `neo4j_importer.py`. This fixed a critical issue where the dashboard would randomly go blank while the background sync was reconstructing the graph.
 - **Graphviz SVG Visibility**: Added a CSS `invert(1) hue-rotate(180deg)` filter to embedded `.dot` SVG diagrams to make black text readable on dark mode backgrounds, while correctly disabling the filter in light mode.
 - **Auto-Connect Modal**: Modified the connection overlay to automatically initialize the dashboard connection by default, preventing users from landing on a static connection screen.
+- **UI Button Overflow**: Restructured the control panel grid into three horizontal rows to prevent overflowing buttons from being cut off.
 
 ---
 
