@@ -558,6 +558,14 @@
         
         <button class="btn-primary" onclick="connectAndInitialize()">Initialize Dashboard</button>
       </div>
+      <!-- Timeline Floating Panel -->
+      <div id="timeline-panel" style="display: none; position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 600px; max-width: 80%; background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px 25px; z-index: 10; box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Ingestion Timeline</span>
+            <span id="timeline-display" style="font-family: 'Outfit'; font-size: 14px; font-weight: 600; color: var(--color-paper);">All Time</span>
+        </div>
+        <input type="range" id="timeline-slider" min="0" max="1000" value="1000" style="width: 100%; cursor: pointer;" oninput="updateTimeTravel()">
+      </div>
     </div>
 
     <!-- Main Workspace -->
@@ -598,8 +606,9 @@
           <button class="btn" id="stabilize-btn" onclick="toggleStabilization()"><i data-lucide="waves" style="width: 14px; height: 14px;"></i>Stabilize: OFF</button>
         </div>
         <div class="control-row" style="margin-top: 8px;">
-          <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save State</button>
-          <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load State</button>
+          <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save</button>
+          <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load</button>
+          <button class="btn" onclick="exportImage()"><i data-lucide="camera" style="width: 14px; height: 14px;"></i>Export 4K</button>
           <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
           <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
         </div>
@@ -612,6 +621,7 @@
         <div class="control-row" style="margin-top: 8px;">
           <button class="btn" id="tree-btn" onclick="toggleTreeMode()"><i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF</button>
           <button class="btn" id="radar-btn" onclick="toggleRadarMode()"><i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF</button>
+          <button class="btn" id="time-btn" onclick="toggleTimeTravel()"><i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: OFF</button>
         </div>
         <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Physics Tuning</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -681,6 +691,10 @@
     let isHubsModeEnabled = false;
     let isTreeModeEnabled = false;
     let isRadarModeEnabled = false;
+    let isTimeTravelEnabled = false;
+    let timeMin = 0;
+    let timeMax = 0;
+    let windowCutoff = 0;
     let minimapNetwork = null;
     let selectedNodeIds = [];
     let isOrbitModeEnabled = false;
@@ -1089,6 +1103,64 @@
       };
       reader.readAsText(file);
     }
+
+    function exportImage() {
+       const container = document.getElementById("graph-network");
+       const canvas = container.querySelector("canvas");
+       if (!canvas || !network) {
+          alert("Graph network not ready.");
+          return;
+       }
+       
+       // Save original view state
+       const originalWidth = container.style.width;
+       const originalHeight = container.style.height;
+       const originalTransform = network.getViewPosition();
+       const originalScale = network.getScale();
+       
+       // Force 4K resolution on the container (UHD 3840x2160)
+       container.style.width = "3840px";
+       container.style.height = "2160px";
+       network.setSize("3840px", "2160px");
+       network.fit(); 
+       network.redraw(); 
+       
+       // Wait for the next animation frame to let the canvas context update its backing buffer
+       setTimeout(() => {
+           try {
+               // Capture with white or dark background depending on theme
+               const tempCanvas = document.createElement("canvas");
+               tempCanvas.width = 3840;
+               tempCanvas.height = 2160;
+               const ctx = tempCanvas.getContext("2d");
+               
+               // Fill background
+               ctx.fillStyle = document.body.classList.contains('light-mode') ? "#f8fafc" : "#090d16";
+               ctx.fillRect(0, 0, 3840, 2160);
+               // Draw the graph over it
+               ctx.drawImage(canvas, 0, 0, 3840, 2160);
+               
+               const dataUrl = tempCanvas.toDataURL("image/png", 1.0);
+               
+               const link = document.createElement("a");
+               link.href = dataUrl;
+               const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+               link.download = `lobster_graph_4k_export_${timestamp}.png`;
+               document.body.appendChild(link);
+               link.click();
+               document.body.removeChild(link);
+           } catch(err) {
+               console.error("Failed to export 4K image:", err);
+               alert("Failed to export image.");
+           } finally {
+               // Restore original dimensions and view
+               container.style.width = originalWidth || "100%";
+               container.style.height = originalHeight || "100vh";
+               network.setSize("100%", "100%");
+               network.moveTo({ position: originalTransform, scale: originalScale });
+           }
+       }, 500); 
+    }
     async function clearDatabase() {
       if (!confirm("⚠️ WARNING: This will permanently delete all nodes and relationships in the active Neo4j database.\n\nAre you sure you want to proceed?")) {
         return;
@@ -1209,6 +1281,52 @@
       }
       lucide.createIcons();
     }
+    function toggleTimeTravel() {
+      isTimeTravelEnabled = !isTimeTravelEnabled;
+      const btn = document.getElementById("time-btn");
+      const panel = document.getElementById("timeline-panel");
+      
+      if (isTimeTravelEnabled) {
+        btn.innerHTML = `<i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: ON`;
+        
+        const timestamps = rawNodes
+           .filter(n => n.type === "Paper" && n.properties && n.properties.processed_at)
+           .map(n => new Date(n.properties.processed_at).getTime());
+           
+        if (timestamps.length > 0) {
+            timeMin = Math.min(...timestamps) - 1000;
+            timeMax = Math.max(...timestamps) + 1000;
+        } else {
+            timeMin = Date.now() - 86400000; 
+            timeMax = Date.now();
+        }
+        
+        windowCutoff = timeMax;
+        document.getElementById("timeline-slider").value = 1000;
+        document.getElementById("timeline-display").innerText = new Date(windowCutoff).toLocaleString();
+        
+        panel.style.display = "block";
+      } else {
+        btn.innerHTML = `<i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: OFF`;
+        panel.style.display = "none";
+        
+        // Unhide all edges that were hidden
+        const updatedEdges = rawEdges.map(e => ({ id: e.id, hidden: false }));
+        edgesDataset.update(updatedEdges);
+      }
+      lucide.createIcons();
+      filterGraph();
+    }
+
+    function updateTimeTravel() {
+        if (!isTimeTravelEnabled) return;
+        const slider = document.getElementById("timeline-slider");
+        const val = parseInt(slider.value);
+        windowCutoff = timeMin + ((timeMax - timeMin) * (val / 1000));
+        document.getElementById("timeline-display").innerText = new Date(windowCutoff).toLocaleString();
+        filterGraph();
+    }
+
 
     function toggleOrbitMode() {
       isOrbitModeEnabled = !isOrbitModeEnabled;
@@ -1309,6 +1427,23 @@
          });
       }
 
+      let allowedNodes = null;
+      if (isTimeTravelEnabled) {
+          let allowedPapers = new Set();
+          rawNodes.forEach(n => {
+              if (n.type === "Paper" && n.properties && n.properties.processed_at) {
+                  if (new Date(n.properties.processed_at).getTime() <= windowCutoff) {
+                      allowedPapers.add(n.id);
+                  }
+              }
+          });
+          allowedNodes = new Set(allowedPapers);
+          rawEdges.forEach(e => {
+              if (allowedPapers.has(e.from)) allowedNodes.add(e.to);
+              if (allowedPapers.has(e.to)) allowedNodes.add(e.from);
+          });
+      }
+
       const updatedNodes = rawNodes.map(node => {
         let match = !q || node.title.toLowerCase().includes(q) || 
                       (node.properties.definition && node.properties.definition.toLowerCase().includes(q)) ||
@@ -1320,12 +1455,18 @@
             if (!isSelected && !isNeighbor) match = false;
         }
         
+        let isHidden = false;
+        if (isTimeTravelEnabled && allowedNodes && !allowedNodes.has(node.id)) {
+            isHidden = true;
+        }
+        
         let baseSize = node.size || 15;
         let finalSize = isHubsModeEnabled ? baseSize + (degrees[node.id] || 0) * 1.5 : baseSize;
         
         return {
           id: node.id,
           size: finalSize,
+          hidden: isHidden,
           color: {
             background: match ? (isLight ? "#ffffff" : "rgba(9, 13, 22, 0.9)") : (isLight ? "rgba(0,0,0,0.05)" : "rgba(15, 23, 42, 0.1)"),
             border: match ? (isLight ? darkenColor(node.color.border, 20) : node.color.border) : (isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.02)")
@@ -1340,6 +1481,14 @@
       });
 
       nodesDataset.update(updatedNodes);
+      
+      if (isTimeTravelEnabled && allowedNodes) {
+          const updatedEdges = rawEdges.map(e => ({
+              id: e.id,
+              hidden: !(allowedNodes.has(e.from) && allowedNodes.has(e.to))
+          }));
+          edgesDataset.update(updatedEdges);
+      }
     }
 
     // Helper to darken hex colors for light mode contrast
