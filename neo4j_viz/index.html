@@ -647,8 +647,14 @@
           <span style="font-size: 11px; color: var(--text-muted);">MIN CONNECTIONS</span>
           <span id="min-conn-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">0</span>
         </div>
-        <input type="range" id="min-conn-slider" min="0" max="20" step="1" value="0" class="slider" oninput="document.getElementById('min-conn-val').innerText=this.value; filterGraph();">
+        <input type="range" id="min-conn-slider" min="0" max="20" step="1" value="0" style="width: 100%;" class="slider" oninput="document.getElementById('min-conn-val').innerText=this.value; filterGraph();">
         
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; margin-top: 12px;">
+          <span style="font-size: 11px; color: var(--text-muted);">MAX NODES</span>
+          <span id="max-nodes-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">ALL</span>
+        </div>
+        <input type="range" id="max-nodes-slider" min="50" max="3000" step="50" value="3000" style="width: 100%;" class="slider" oninput="document.getElementById('max-nodes-val').innerText=this.value == 3000 ? 'ALL' : this.value; filterGraph();">
+
         <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Physics Tuning</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <span style="font-size: 11px; color: var(--text-muted);">GRAVITY</span>
@@ -1641,13 +1647,24 @@
       const q = document.getElementById("search-input").value.toLowerCase();
       const isLight = document.body.classList.contains('light-mode');
       const minConn = parseInt(document.getElementById("min-conn-slider")?.value || "0");
+      const maxNodesSliderVal = parseInt(document.getElementById("max-nodes-slider")?.value || "3000");
+      const maxNodes = maxNodesSliderVal >= 3000 ? Infinity : maxNodesSliderVal;
       
       let degrees = {};
-      if (isHubsModeEnabled || minConn > 0) {
-         rawEdges.forEach(e => {
-            degrees[e.from] = (degrees[e.from] || 0) + 1;
-            degrees[e.to] = (degrees[e.to] || 0) + 1;
-         });
+      rawEdges.forEach(e => {
+         degrees[e.from] = (degrees[e.from] || 0) + 1;
+         degrees[e.to] = (degrees[e.to] || 0) + 1;
+      });
+
+      let allowedByMaxNodes = null;
+      if (maxNodes < Infinity) {
+          let sortedNodes = [...rawNodes].sort((a, b) => {
+              // Prioritize papers, then degree
+              if (a.type === "Paper" && b.type !== "Paper") return -1;
+              if (b.type === "Paper" && a.type !== "Paper") return 1;
+              return (degrees[b.id] || 0) - (degrees[a.id] || 0);
+          });
+          allowedByMaxNodes = new Set(sortedNodes.slice(0, maxNodes).map(n => n.id));
       }
 
       let allowedNodes = null;
@@ -1688,6 +1705,10 @@
         }
 
         if (minConn > 0 && (degrees[node.id] || 0) < minConn) {
+            isHidden = true;
+        }
+
+        if (allowedByMaxNodes && !allowedByMaxNodes.has(node.id)) {
             isHidden = true;
         }
         
