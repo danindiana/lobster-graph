@@ -27,8 +27,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install pytest Pillow
-      - run: python -m pytest tests/
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+      - run: pip install pytest pymupdf requests Pillow
+      - run: python -m pytest tests/ -v
 
   rust-lint:
     name: Rust (clippy)
