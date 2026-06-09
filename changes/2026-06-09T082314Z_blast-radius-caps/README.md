@@ -1,8 +1,8 @@
 # Blast-radius caps — 2026-06-09T082314Z
 
-Two changes that cap the resource blast radius of large / scanned PDFs, motivated
+Four changes that cap the resource blast radius of large / scanned PDFs, motivated
 by an investigation into 11 Ollama HTTP-500 failures in a 5219-paper run
-(5208 ✅ / 11 ❌, 0.2%).
+(5208 ✅ / 11 ❌, 0.2%). Changes 1–2 shipped first; 3–4 followed in the same effort.
 
 > The live, edited files are at the **repo root** (`paper_processor.py`,
 > `ocr_fallback.py`) — this folder is a self-contained record: the unified
@@ -77,17 +77,36 @@ unlimited. New `OcrStats.ocr_capped` counter surfaces in the run log, e.g.
 
 ---
 
+### 3. C++ `code_model`: `qwen3-coder:30b` → `qwen2.5-coder:14b`
+`paper_processor.py` · `CODE_MODEL = MODEL_TIERS["single_code"]`
+
+The pipeline ran **two** 30B models — `nemotron` (prose) + `qwen3-coder:30b` (C++).
+With `OLLAMA_MAX_LOADED_MODELS=2`, Ollama keeps both resident (~42 GB on 26.5 GB
+VRAM → impossible), thrashing on every switch and OOM-crashing the runner (two of the
+11 failures were on `qwen3-coder:30b`). Switching the C++ section to the 9 GB
+`qwen2.5-coder:14b` lets the prose 30B + the coder 14B coexist on-GPU.
+
+### 4. Prose context cap: 90k → 45k chars (diagram slice 60k → 30k)
+`paper_processor.py` · `capped = context[:45_000]`
+
+The model's context window is **16384 tokens**, but the prose sections were fed
+`context[:90_000]` chars (~22k tokens) — overflowing the window and inflating the KV
+cache (the exact allocation that tipped GPU1 over its 8.2 GiB). 45k chars (~11k
+tokens) fits inside 16k with room for the prompt + output, so the KV cache stays small
+and GPU-resident. The diagram section's slice drops from `capped[:60_000]` to
+`capped[:30_000]` to match.
+
+---
+
 ## Scope & residual risk
 
-These two caps fully cover the >200-page failures (Coecke, idealproblemsolver,
-complex) and reduce context pressure on OCR-heavy docs. They do **not** by themselves
-fix the mid-size failures (20–189 pages) whose context still routes to a 30B with
-near-zero VRAM headroom. Recommended follow-ups (config, not in this patch):
+Changes **1–4** together address all four failure modes seen in the run: the >200-page
+CPU-fallback/OOM (1), oversized OCR context (2), the dual-30B VRAM thrash (3), and the
+context-window overflow that inflated the KV cache across *all* page sizes (4). The
+remaining lever, if failures persist, is purely operational:
 
-- Route the C++ `code_model` off `qwen3-coder:30b` to a single-GPU coder
-  (`qwen2.5-coder:14b`) — removes the second 30B and the load-thrash.
-- Set `OLLAMA_MAX_LOADED_MODELS=1` so only one model is resident at a time.
-- Lower the prose context cap (`capped = context[:90_000]`) to shrink KV cache.
+- Set `OLLAMA_MAX_LOADED_MODELS=1` (in the systemd override) so only one model is ever
+  resident — belt-and-suspenders alongside change 3.
 
 ## Apply / revert
 

@@ -121,8 +121,11 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
     (999, "single"),        # very large book → lighter model, stays GPU-resident
 ]
 
-# Separate model for C++ section (code-specialised)
-CODE_MODEL = MODEL_TIERS["xl_code"]
+# Separate model for C++ section (code-specialised). Use the single-GPU 14B
+# coder rather than xl_code (qwen3-coder:30b): a second 30B alongside the 30B
+# prose model thrashes VRAM (OLLAMA_MAX_LOADED_MODELS=2) and OOM-crashes the
+# runner. The 14B keeps both models GPU-resident.
+CODE_MODEL = MODEL_TIERS["single_code"]
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
@@ -862,8 +865,10 @@ class PaperProcessor:
             print(f"     ⚡  Stopped during map-reduce — {len(completed)} section(s) saved")
             return
 
-        # Cap to ~90k chars (~22k tokens) — safe for 32k-ctx models
-        capped = context[:90_000]
+        # Cap to ~45k chars (~11k tokens) — fits inside the 16k-ctx window with
+        # room for the prompt + output, so the KV cache stays small and on-GPU.
+        # (Was 90k/~22k tokens, which overflowed 16k ctx → oversized KV → OOM.)
+        capped = context[:45_000]
 
         # ── 1. Summary ────────────────────────────────────────────────────
         if self._should_run("summary", completed):
@@ -923,7 +928,7 @@ class PaperProcessor:
             print("     📊  Graphviz diagrams …")
             try:
                 raw = self.backend.call(
-                    self._tag_prompt(DIAGRAM_PROMPT, capped[:60_000]),
+                    self._tag_prompt(DIAGRAM_PROMPT, capped[:30_000]),
                     model,
                     ctx_tokens=32768,
                 )

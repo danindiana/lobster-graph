@@ -46,7 +46,7 @@ index db7c29d..747ea82 100644
              if cache_dir is not None and paper_hash:
                  _cache_path(cache_dir, paper_hash, idx).write_text(text, encoding="utf-8")
 diff --git a/paper_processor.py b/paper_processor.py
-index 2d8ba9c..810278b 100755
+index 2d8ba9c..dc04fc5 100755
 --- a/paper_processor.py
 +++ b/paper_processor.py
 @@ -56,6 +56,10 @@ from ocr_fallback import (
@@ -60,7 +60,7 @@ index 2d8ba9c..810278b 100755
  
  # ══════════════════════════════════════════════════════════════════════════════
  # GRACEFUL SHUTDOWN
-@@ -110,7 +114,11 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
+@@ -110,11 +114,18 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
      (8,   "fast"),          # tiny paper / abstract
      (18,  "single"),        # short paper
      (35,  "xl_quality"),    # standard conference paper
@@ -72,8 +72,17 @@ index 2d8ba9c..810278b 100755
 +    (999, "single"),        # very large book → lighter model, stays GPU-resident
  ]
  
- # Separate model for C++ section (code-specialised)
-@@ -715,6 +723,7 @@ class PaperProcessor:
+-# Separate model for C++ section (code-specialised)
+-CODE_MODEL = MODEL_TIERS["xl_code"]
++# Separate model for C++ section (code-specialised). Use the single-GPU 14B
++# coder rather than xl_code (qwen3-coder:30b): a second 30B alongside the 30B
++# prose model thrashes VRAM (OLLAMA_MAX_LOADED_MODELS=2) and OOM-crashes the
++# runner. The 14B keeps both models GPU-resident.
++CODE_MODEL = MODEL_TIERS["single_code"]
+ 
+ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+ 
+@@ -715,6 +726,7 @@ class PaperProcessor:
          ocr_min_chars: int = DEFAULT_MIN_CHARS,
          ocr_dpi: int = DEFAULT_DPI,
          ocr_lang: str = DEFAULT_LANG,
@@ -81,7 +90,7 @@ index 2d8ba9c..810278b 100755
      ):
          self.papers_dir        = papers_dir
          self.out_root          = papers_dir / "_processed"
-@@ -727,6 +736,7 @@ class PaperProcessor:
+@@ -727,6 +739,7 @@ class PaperProcessor:
          self.ocr_min_chars = ocr_min_chars
          self.ocr_dpi       = ocr_dpi
          self.ocr_lang      = ocr_lang
@@ -89,7 +98,7 @@ index 2d8ba9c..810278b 100755
          self.out_root.mkdir(exist_ok=True)
  
      # ── Utilities ─────────────────────────────────────────────────────────
-@@ -809,6 +819,7 @@ class PaperProcessor:
+@@ -809,6 +822,7 @@ class PaperProcessor:
              min_chars=self.ocr_min_chars,
              dpi=self.ocr_dpi,
              lang=self.ocr_lang,
@@ -97,7 +106,29 @@ index 2d8ba9c..810278b 100755
              paper_hash=paper_hash,
              cache_dir=paper_dir / ".ocr_cache",
          )
-@@ -1206,6 +1217,12 @@ def main():
+@@ -851,8 +865,10 @@ class PaperProcessor:
+             print(f"     ⚡  Stopped during map-reduce — {len(completed)} section(s) saved")
+             return
+ 
+-        # Cap to ~90k chars (~22k tokens) — safe for 32k-ctx models
+-        capped = context[:90_000]
++        # Cap to ~45k chars (~11k tokens) — fits inside the 16k-ctx window with
++        # room for the prompt + output, so the KV cache stays small and on-GPU.
++        # (Was 90k/~22k tokens, which overflowed 16k ctx → oversized KV → OOM.)
++        capped = context[:45_000]
+ 
+         # ── 1. Summary ────────────────────────────────────────────────────
+         if self._should_run("summary", completed):
+@@ -912,7 +928,7 @@ class PaperProcessor:
+             print("     📊  Graphviz diagrams …")
+             try:
+                 raw = self.backend.call(
+-                    self._tag_prompt(DIAGRAM_PROMPT, capped[:60_000]),
++                    self._tag_prompt(DIAGRAM_PROMPT, capped[:30_000]),
+                     model,
+                     ctx_tokens=32768,
+                 )
+@@ -1206,6 +1222,12 @@ def main():
          "--ocr-lang", default=DEFAULT_LANG, metavar="LANG",
          help=f"Tesseract language pack(s), e.g. 'eng' or 'eng+deu' [default: {DEFAULT_LANG}]",
      )
@@ -110,7 +141,7 @@ index 2d8ba9c..810278b 100755
      args = ap.parse_args()
  
      if args.workers < 1:
-@@ -1301,6 +1318,7 @@ def main():
+@@ -1301,6 +1323,7 @@ def main():
          ocr_min_chars = args.ocr_min_chars,
          ocr_dpi       = args.ocr_dpi,
          ocr_lang      = args.ocr_lang,
