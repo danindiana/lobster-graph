@@ -1,0 +1,40 @@
+// The four blast-radius caps, each as a before → after transform.
+digraph changes {
+  rankdir=LR;
+  bgcolor="#06090f";
+  pad=0.4; nodesep=0.35; ranksep=1.0;
+  node [shape=box, style="rounded,filled", fontname="Courier", fontsize=11,
+        fillcolor="#0d141d", fontcolor="#cfe", penwidth=1.6];
+  edge [color="#5fffcf", fontname="Courier", fontsize=9, fontcolor="#66aa88", penwidth=1.6, arrowsize=0.8];
+
+  label="Four caps — before → after";
+  labelloc="t"; fontname="Courier"; fontcolor="#5fffcf"; fontsize=15;
+
+  // change 1
+  b1 [label="select_model:\n>200pg → nemotron-30b", color="#ff6b6b", fontcolor="#ff6b6b"];
+  a1 [label="select_model:\n>200pg → deepseek-r1:14b", color="#9affae", fontcolor="#9affae"];
+  b1 -> a1 [label="1 · route big docs"];
+
+  // change 2
+  b2 [label="OCR: every low-text\npage rasterised (300dpi)", color="#ff6b6b", fontcolor="#ff6b6b"];
+  a2 [label="OCR: --ocr-max-pages=40\nbudget, native fallback", color="#9affae", fontcolor="#9affae"];
+  b2 -> a2 [label="2 · cap OCR"];
+
+  // change 3
+  b3 [label="code_model:\nqwen3-coder:30b  (2nd 30B)", color="#ff6b6b", fontcolor="#ff6b6b"];
+  a3 [label="code_model:\nqwen2.5-coder:14b", color="#9affae", fontcolor="#9affae"];
+  b3 -> a3 [label="3 · drop 2nd 30B"];
+
+  // change 4
+  b4 [label="context cap:\n90k chars (~22k tok)", color="#ff6b6b", fontcolor="#ff6b6b"];
+  a4 [label="context cap:\n45k chars (~11k tok)\ndiagram 60k → 30k", color="#9affae", fontcolor="#9affae"];
+  b4 -> a4 [label="4 · shrink KV"];
+
+  { rank=same; b1; b2; b3; b4; }
+  { rank=same; a1; a2; a3; a4; }
+
+  goal [label="KV cache stays small + GPU-resident\nrunner no longer OOMs",
+        shape=box, style="rounded,filled", color="#5fffcf", fontcolor="#5fffcf", penwidth=2.2];
+  a1 -> goal [style=dashed]; a2 -> goal [style=dashed];
+  a3 -> goal [style=dashed]; a4 -> goal [style=dashed];
+}

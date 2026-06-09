@@ -4,6 +4,31 @@ Four changes that cap the resource blast radius of large / scanned PDFs, motivat
 by an investigation into 11 Ollama HTTP-500 failures in a 5219-paper run
 (5208 ✅ / 11 ❌, 0.2%). Changes 1–2 shipped first; 3–4 followed in the same effort.
 
+## Diagrams
+
+Graphviz DOT sources + rendered PNG/SVG live in [`diagrams/`](diagrams/) (regenerate
+with `cd diagrams && for d in *.dot; do dot -Tsvg $d -o ${d%.dot}.svg; dot -Tpng -Gdpi=140 $d -o ${d%.dot}.png; done`).
+
+**Root cause** — VRAM exhaustion → llama-runner OOM
+([dot](diagrams/01_root_cause_vram.dot) · [svg](diagrams/01_root_cause_vram.svg))
+
+![Root cause](diagrams/01_root_cause_vram.png)
+
+**The four caps** — before → after
+([dot](diagrams/02_changes_overview.dot) · [svg](diagrams/02_changes_overview.svg))
+
+![Four caps](diagrams/02_changes_overview.png)
+
+**Capped pipeline architecture** — PDF → sized model + bounded OCR + bounded context
+([dot](diagrams/03_pipeline_routing.dot) · [svg](diagrams/03_pipeline_routing.svg))
+
+![Capped pipeline](diagrams/03_pipeline_routing.png)
+
+**Provenance** — run → investigation → fixes → commits → push
+([dot](diagrams/04_provenance.dot) · [svg](diagrams/04_provenance.svg))
+
+![Provenance](diagrams/04_provenance.png)
+
 > The live, edited files are at the **repo root** (`paper_processor.py`,
 > `ocr_fallback.py`) — this folder is a self-contained record: the unified
 > `blast-radius-caps.patch` plus reference copies under `modified_files/`.
