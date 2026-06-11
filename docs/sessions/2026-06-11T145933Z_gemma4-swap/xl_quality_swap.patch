@@ -1,0 +1,32 @@
+diff --git a/paper_processor.py b/paper_processor.py
+index dc04fc5..94144ad 100755
+--- a/paper_processor.py
++++ b/paper_processor.py
+@@ -96,7 +96,7 @@ class _ShutdownRequested(Exception):
+ # Models in approximate VRAM-fit order (dual-GPU first, then single-GPU)
+ MODEL_TIERS = {
+     # ── Dual-GPU tier  (~18–20 GB) ──────────────────────────────────────
+-    "xl_quality":   "nemotron-3-nano-30b-small:latest",  # text-only; was gemma4 (multimodal, vision unused)
++    "xl_quality":   "gemma4:26b-a4b-it-q4_K_M",     # MoE a4b (~17 GB); swapped from nemotron-3-nano-30b 2026-06-11
+     "xl_reason":    "deepseek-r1:32b",              # Strong chain-of-thought
+     "xl_code":      "qwen3-coder:30b",              # Best for C++ sections
+     # ── Mid tier  (~14–17 GB) ───────────────────────────────────────────
+@@ -133,7 +133,8 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+ # Ordered by preference: best/largest first, fast fallback last.
+ # (model_name, vram_label, role_label, is_default)
+ KNOWN_GOOD_MODELS: List[tuple] = [
+-    ("nemotron-3-nano-30b-small:latest",   "~24 GB", "xl_quality — current default",    True),
++    ("gemma4:26b-a4b-it-q4_K_M",           "~17 GB", "xl_quality — current default",    True),
++    ("nemotron-3-nano-30b-small:latest",   "~24 GB", "xl_quality — text-only alt",      False),
+     ("deepseek-r1:32b",                    "~19 GB", "xl_reason — chain-of-thought",    False),
+     ("deepseek-r1:14b-qwen-distill-q8_0", "~15 GB", "mid_reason — Q8 fidelity",        False),
+     ("devstral:24b",                       "~14 GB", "mid_code — code + text",          False),
+@@ -1144,7 +1145,7 @@ def main():
+             Model auto-selection by page count (use -s to pick interactively):
+               ≤ 8  pages  →  deepseek-r1:8b      (~5 GB)
+               ≤ 18 pages  →  deepseek-r1:14b     (~9 GB)
+-              > 18 pages  →  nemotron-3-nano-30b-small (~24 GB, dual-GPU)
++              > 18 pages  →  gemma4:26b-a4b-it-q4_K_M (~17 GB, dual-GPU)
+               C++ section →  qwen3-coder:30b      (~17 GB, dual-GPU)
+               -s / --select-model  →  numbered menu of known-good models
+         """),
