@@ -1,0 +1,46 @@
+diff --git a/paper_processor.py b/paper_processor.py
+index 124e813..18bcc0d 100755
+--- a/paper_processor.py
++++ b/paper_processor.py
+@@ -127,6 +127,15 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
+ # runner. The 14B keeps both models GPU-resident.
+ CODE_MODEL = MODEL_TIERS["single_code"]
+ 
++# Per-model GPU layer caps (Ollama options.num_gpu). Keeps the large prose
++# model (gemma4, ~20 GB) fully VRAM-resident by bounding the co-loaded code
++# model's GPU footprint; the rest of its layers run on CPU (128 GB RAM).
++# ~12 layers ≈ 3-4 GB. Raise toward ~40 (all layers) for more GPU, lower to
++# 0 for pure CPU. Models absent from this map use Ollama's auto offload.
++MODEL_GPU_LAYERS = {
++    CODE_MODEL: 12,
++}
++
+ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+ 
+ # Curated list of known-good models for the interactive selector (-s flag).
+@@ -450,16 +459,19 @@ class Backend:
+     # ── Ollama ────────────────────────────────────────────────────────────
+     def _call_ollama(self, prompt: str, model: str, ctx: int) -> str:
+         url = f"{OLLAMA_URL}/api/generate"
++        options = {
++            "num_ctx":        ctx,
++            "temperature":    0.20,
++            "top_p":          0.90,
++            "repeat_penalty": 1.10,
++        }
++        if model in MODEL_GPU_LAYERS:
++            options["num_gpu"] = MODEL_GPU_LAYERS[model]
+         payload = {
+             "model": model,
+             "prompt": prompt,
+             "stream": True,  # Enable streaming for interruptibility
+-            "options": {
+-                "num_ctx":        ctx,
+-                "temperature":    0.20,
+-                "top_p":          0.90,
+-                "repeat_penalty": 1.10,
+-            },
++            "options": options,
+         }
+         for attempt in range(1, 3):
+             if _shutdown.is_set():
