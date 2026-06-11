@@ -90,3 +90,21 @@ pressure, lower `MODEL_GPU_LAYERS[CODE_MODEL]` toward 0.
 
 The processor was stopped after this verification (user satisfied with
 results).
+
+## Final simplification — single model for prose + code
+
+To cut VRAM/CPU churn further, `CODE_MODEL` was repointed from `qwen3:14b` to
+`MODEL_TIERS["xl_quality"]` (gemma4). Rationale: for the dominant case
+(≥35-page papers, where gemma4 is already the prose model) the C++ section now
+reuses the **single warm, fully-resident** gemma4 — no second model load, no
+eviction, no CPU-offloaded layers, no num_gpu juggling. gemma4:26b handles the
+extracted C++ examples adequately.
+
+Consequently the `num_gpu` cap is now moot and `MODEL_GPU_LAYERS` was emptied
+to `{}` (mechanism kept for future use; the gemma4 entry would have wrongly
+throttled the prose model). Patch `code_model_to_gemma4.patch`.
+
+**Residual nuance:** for small papers (≤18 pp) prose still uses a smaller
+deepseek tier, so a small paper *with* a C++ section would load gemma4 (20 GB)
+alongside the small prose model — a rare two-model case that still fits more
+comfortably than the old layout. Not optimized; flagged only.

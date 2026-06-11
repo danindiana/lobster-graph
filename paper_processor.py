@@ -121,20 +121,21 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
     (999, "single"),        # very large book → lighter model, stays GPU-resident
 ]
 
-# Separate model for C++ section (code-specialised). Use the single-GPU 14B
-# coder rather than xl_code (qwen3-coder:30b): a second 30B alongside the 30B
-# prose model thrashes VRAM (OLLAMA_MAX_LOADED_MODELS=2) and OOM-crashes the
-# runner. The 14B keeps both models GPU-resident.
-CODE_MODEL = MODEL_TIERS["single_code"]
+# Model for the C++ section. Reuse the xl_quality prose model (gemma4) rather
+# than a separate code-specialised model: for the common case (standard papers,
+# where gemma4 is already the prose model) this keeps a SINGLE model resident,
+# so the C++ section runs on the warm, fully-VRAM-resident model with no second
+# load — no eviction, no CPU-offloaded layers, no VRAM churn. gemma4:26b handles
+# code well enough for the extracted C++ examples. (Was qwen3:14b; before that
+# qwen2.5-coder:14b. The separate-coder approach forced a 2nd model into ~26 GB
+# total VRAM, OOM-ing the runner until capped via num_gpu — now moot.)
+CODE_MODEL = MODEL_TIERS["xl_quality"]
 
-# Per-model GPU layer caps (Ollama options.num_gpu). Keeps the large prose
-# model (gemma4, ~20 GB) fully VRAM-resident by bounding the co-loaded code
-# model's GPU footprint; the rest of its layers run on CPU (128 GB RAM).
-# ~12 layers ≈ 3-4 GB. Raise toward ~40 (all layers) for more GPU, lower to
-# 0 for pure CPU. Models absent from this map use Ollama's auto offload.
-MODEL_GPU_LAYERS = {
-    CODE_MODEL: 12,
-}
+# Per-model GPU layer caps (Ollama options.num_gpu) for any model that should be
+# bounded when co-resident with a larger one. Empty by default: with prose and
+# code sharing one model there is no second model to cap. Add an entry
+# {"<model>": <n_layers>} to force a smaller GPU footprint (0 = pure CPU).
+MODEL_GPU_LAYERS = {}
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
@@ -1158,7 +1159,7 @@ def main():
               ≤ 8  pages  →  deepseek-r1:8b      (~5 GB)
               ≤ 18 pages  →  deepseek-r1:14b     (~9 GB)
               > 18 pages  →  gemma4:26b-a4b-it-q4_K_M (~17 GB, dual-GPU)
-              C++ section →  qwen3:14b            (~9 GB, single-GPU)
+              C++ section →  same as prose model  (gemma4 for ≥35-page papers)
               -s / --select-model  →  numbered menu of known-good models
         """),
     )
