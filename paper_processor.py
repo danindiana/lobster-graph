@@ -592,6 +592,121 @@ def select_model(page_count: int, user_override: Optional[str]) -> str:
     return MODEL_TIERS["xl_quality"]
 
 
+def list_ollama_models() -> List[Tuple[str, str]]:
+    """Every model in Ollama's local library as (name, vram_label), name-sorted."""
+    r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
+    r.raise_for_status()
+    out = [(m["name"], f"~{m.get('size', 0) / 1e9:.1f} GB")
+           for m in r.json().get("models", [])]
+    return sorted(out, key=lambda x: x[0].lower())
+
+
+def prompt_model_selection_tui(
+    models: List[Tuple[str, str]],
+    title: str = "Select model",
+    default_name: Optional[str] = None,
+) -> Optional[str]:
+    """Full-screen curses picker over `models` [(name, vram_label), …].
+
+    ↑/↓ (or k/j) scroll, Enter selects, q/Esc cancels. Returns the chosen model
+    name, or None if cancelled / no TTY / curses unavailable — callers fall back
+    to the numbered menu.
+    """
+    if not (sys.stdin.isatty() and sys.stdout.isatty()) or not models:
+        return None
+    try:
+        import curses
+    except ImportError:
+        return None
+
+    chosen: dict = {"name": None}
+
+    def _ui(stdscr) -> None:
+        curses.curs_set(0)
+        idx = next((i for i, (n, _) in enumerate(models) if n == default_name), 0)
+        top = 0
+        while True:
+            stdscr.erase()
+            h, w = stdscr.getmaxyx()
+            body_h = max(1, h - 4)  # rows reserved for header(2) + footer(1) + pad
+            # keep cursor visible
+            if idx < top:
+                top = idx
+            elif idx >= top + body_h:
+                top = idx - body_h + 1
+            header = f"  {title} — {len(models)} local Ollama models"
+            cols = f"  {'Model':<48} Size"
+            stdscr.addnstr(0, 0, header, w - 1, curses.A_BOLD)
+            stdscr.addnstr(1, 0, cols, w - 1, curses.A_DIM)
+            for row in range(body_h):
+                m = top + row
+                if m >= len(models):
+                    break
+                name, vram = models[m]
+                line = f"  {name:<48} {vram}"
+                attr = curses.A_REVERSE if m == idx else curses.A_NORMAL
+                stdscr.addnstr(2 + row, 0, line.ljust(w - 1)[:w - 1], w - 1, attr)
+            footer = "  ↑/↓ move · Enter select · q cancel"
+            stdscr.addnstr(h - 1, 0, footer, w - 1, curses.A_DIM)
+            stdscr.refresh()
+
+            k = stdscr.getch()
+            # ESC may begin an arrow sequence (ESC [ A/B/H/F/5~/6~) on terminals
+            # where keypad translation doesn't fire — disambiguate from a bare
+            # ESC (cancel) by peeking with a short non-blocking read.
+            if k == 27:
+                stdscr.nodelay(True)
+                b1 = stdscr.getch()
+                b2 = stdscr.getch()
+                b3 = stdscr.getch()
+                stdscr.nodelay(False)
+                if b1 == -1:                       # bare ESC → cancel
+                    return
+                if b1 == ord("["):
+                    if b2 == ord("A"):
+                        k = curses.KEY_UP
+                    elif b2 == ord("B"):
+                        k = curses.KEY_DOWN
+                    elif b2 == ord("H"):
+                        k = curses.KEY_HOME
+                    elif b2 == ord("F"):
+                        k = curses.KEY_END
+                    elif b2 == ord("5") and b3 == ord("~"):
+                        k = curses.KEY_PPAGE
+                    elif b2 == ord("6") and b3 == ord("~"):
+                        k = curses.KEY_NPAGE
+                    else:
+                        continue
+                else:
+                    continue
+
+            if k in (curses.KEY_UP, ord("k")):
+                idx = max(0, idx - 1)
+            elif k in (curses.KEY_DOWN, ord("j")):
+                idx = min(len(models) - 1, idx + 1)
+            elif k == curses.KEY_HOME:
+                idx = 0
+            elif k == curses.KEY_END:
+                idx = len(models) - 1
+            elif k == curses.KEY_NPAGE:
+                idx = min(len(models) - 1, idx + body_h)
+            elif k == curses.KEY_PPAGE:
+                idx = max(0, idx - body_h)
+            elif k in (curses.KEY_ENTER, 10, 13):
+                chosen["name"] = models[idx][0]
+                return
+            elif k == ord("q"):
+                return
+
+    try:
+        curses.wrapper(_ui)
+    except Exception:
+        return None
+    if chosen["name"]:
+        print(f"  → {chosen['name']}\n")
+    return chosen["name"]
+
+
 def prompt_model_selection(models: List[tuple] = None) -> str:
     """Numbered menu of known-good models. Returns the chosen model string."""
     if models is None:
@@ -1160,7 +1275,9 @@ def main():
               ≤ 18 pages  →  deepseek-r1:14b     (~9 GB)
               > 18 pages  →  gemma4:26b-a4b-it-q4_K_M (~17 GB, dual-GPU)
               C++ section →  same as prose model  (gemma4 for ≥35-page papers)
-              -s / --select-model  →  numbered menu of known-good models
+              -s / --select-model  →  scrollable curses list of ALL local Ollama
+                                      models (↑/↓ + Enter; falls back to a
+                                      numbered known-good menu without a TTY)
         """),
     )
     ap.add_argument(
@@ -1208,7 +1325,7 @@ def main():
     )
     ap.add_argument(
         "--select-model", "-s", action="store_true",
-        help="Interactively choose the model before processing (overrides auto-selection by page count)",
+        help="Interactively choose the model (scrollable TUI over all local Ollama models) before processing (overrides auto-selection by page count)",
     )
     ap.add_argument(
         "--code-model", default=None, metavar="MODEL",
@@ -1278,16 +1395,28 @@ def main():
     if args.override and args.backend == "ollama":
         provision_ollama(verbose=args.verbose)
 
+    def _choose_model(default_name, curated):
+        """Prefer the curses TUI over ALL local models; fall back to numbered menu."""
+        try:
+            all_models = list_ollama_models()
+        except Exception:
+            all_models = []
+        if all_models:
+            picked = prompt_model_selection_tui(all_models, "Select model", default_name)
+            if picked:
+                return picked
+        return prompt_model_selection(curated)  # fallback: numbered curated menu
+
     if args.select_model and not args.model:
         if sys.stdin.isatty():
-            args.model = prompt_model_selection()
+            args.model = _choose_model(MODEL_TIERS["xl_quality"], KNOWN_GOOD_MODELS)
         else:
             print("[warn] --select-model ignored (stdin is not a TTY)", file=sys.stderr)
 
     if args.select_code_model and not args.code_model:
         if sys.stdin.isatty():
             print("  C++ / code section model:")
-            args.code_model = prompt_model_selection(KNOWN_GOOD_CODE_MODELS)
+            args.code_model = _choose_model(CODE_MODEL, KNOWN_GOOD_CODE_MODELS)
         else:
             print("[warn] --select-code-model ignored (stdin is not a TTY)", file=sys.stderr)
 
