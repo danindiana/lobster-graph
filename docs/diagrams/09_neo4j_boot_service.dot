@@ -1,0 +1,64 @@
+digraph neo4j_boot_service {
+  graph [bgcolor="black" rankdir=LR fontname="Courier New"
+         label="Neo4j Boot Service & Integration"
+         labelloc=t fontcolor="#00FF41" fontsize=16 pad=0.5];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New"
+         fontsize=11 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=10 penwidth=2.0];
+
+  subgraph cluster_boot {
+    label="System Boot"; fontcolor="#FF6600"; color="#FF6600"; style=dashed;
+    target  [label="multi-user.target"                 color="#FF6600" fontcolor="#FF6600" shape=box];
+    service [label="paper-processor-neo4j\nsystemd service\n(restart: always)" color="#FF6600" fontcolor="#FF6600" shape=component];
+  }
+
+  subgraph cluster_docker {
+    label="Docker Compose"; fontcolor="#00FFFF"; color="#00FFFF"; style=dashed;
+    compose [label="docker compose up"                 color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    container [label="paper-processor-neo4j\ncontainer" color="#00FFFF" fontcolor="#00FFFF" shape=cylinder];
+  }
+
+  subgraph cluster_neo4j {
+    label="Neo4j Services"; fontcolor="#7FFF00"; color="#7FFF00"; style=dashed;
+    bolt    [label="Bolt Protocol\n:7687"              color="#7FFF00" fontcolor="#7FFF00" shape=doubleoctagon];
+    http    [label="HTTP Console\n:7474"              color="#7FFF00" fontcolor="#7FFF00" shape=doubleoctagon];
+    knlgraph [label="Knowledge Graph\n(neo4j database)" color="#7FFF00" fontcolor="#7FFF00" shape=cylinder];
+  }
+
+  subgraph cluster_importer {
+    label="Continuous Sync"; fontcolor="#DA70FF"; color="#DA70FF"; style=dashed;
+    sync    [label="paper_processor_dir.py\n_periodic_sync_worker\n(poll every 300s)" color="#DA70FF" fontcolor="#DA70FF" shape=box];
+    importer [label="neo4j_importer.py"               color="#DA70FF" fontcolor="#DA70FF" shape=box];
+  }
+
+  subgraph cluster_viz {
+    label="Dashboard"; fontcolor="#FF00FF"; color="#FF00FF"; style=dashed;
+    viz     [label="neo4j_viz/\nwebgl.html + server.py" color="#FF00FF" fontcolor="#FF00FF" shape=box3d];
+    user    [label="User (browser)"                    color="#FF00FF" fontcolor="#FF00FF" shape=note];
+  }
+
+  subgraph cluster_data {
+    label="Data"; fontcolor="#FFFF00"; color="#FFFF00"; style=dashed;
+    processed [label="_processed/\n(dossiers)"          color="#FFFF00" fontcolor="#FFFF00" shape=folder];
+    volumes [label="Docker volumes\n(data, logs, etc)" color="#FFFF00" fontcolor="#FFFF00" shape=folder];
+  }
+
+  target -> service [color="#FF6600" label="boots" fontcolor="#FF6600"];
+  service -> compose [color="#00FFFF"];
+  compose -> container [color="#00FFFF"];
+  container -> bolt [color="#7FFF00" label="exposes" fontcolor="#7FFF00"];
+  container -> http [color="#7FFF00" label="exposes" fontcolor="#7FFF00"];
+  bolt -> knlgraph [color="#7FFF00"];
+  http -> knlgraph [color="#7FFF00"];
+
+  sync -> importer [color="#DA70FF" label="calls (300s)" fontcolor="#DA70FF"];
+  importer -> bolt [color="#DA70FF" label="Cypher" fontcolor="#DA70FF"];
+
+  processed -> importer [color="#FFFF00" label="reads" fontcolor="#FFFF00"];
+  container -> volumes [color="#FFFF00" label="mounts" fontcolor="#FFFF00"];
+
+  viz -> http [color="#FF00FF" label="query (REST)" fontcolor="#FF00FF"];
+  viz -> bolt [color="#FF00FF" label="query (driver)" fontcolor="#FF00FF"];
+  user -> viz [color="#FF00FF" label="browse" fontcolor="#FF00FF"];
+  knlgraph -> user [color="#FF00FF" label="JSON/viz" fontcolor="#FF00FF" style=dashed];
+}

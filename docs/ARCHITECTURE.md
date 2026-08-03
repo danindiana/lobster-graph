@@ -199,3 +199,64 @@ _processed/
 Slugs are derived from the PDF filename with spaces replaced by hyphens and
 special characters stripped. The `source_hash` in `metadata.json` detects if
 the source PDF has changed since the dossier was last generated.
+
+---
+
+## Neo4j Graph Service
+
+### Purpose
+
+The Neo4j database is the persistent backing store for the Lobster Graph knowledge graph. `neo4j_importer.py` continuously syncs processed dossier metadata into Neo4j as papers finish (every 300 seconds), building a typed graph of papers, concepts, theorems, algorithms, and cross-references. The optional web dashboard (`neo4j_viz/webgl.html`) queries this graph to visualize connectivity, enable interactive exploration, and export subgraph snapshots.
+
+### systemd Configuration
+
+Neo4j runs as a systemd service (`paper-processor-neo4j.service`) that auto-starts on system boot.
+
+| Property | Value |
+|----------|-------|
+| **Service File** | `/etc/systemd/system/paper-processor-neo4j.service` |
+| **Working Directory** | `/home/jeb/programs/python_programs/paper_processor/neo4j_viz/` |
+| **Managed by** | Docker Compose |
+| **Boot Target** | `multi-user.target` (auto-start on system boot) |
+| **Restart Policy** | Always restart on failure (10-second delay) |
+| **Memory Cap** | 4 GB |
+
+### Access Points
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| HTTP Console | `localhost:7474` | Interactive web interface (password auth) |
+| Bolt Protocol | `localhost:7687` | Driver connections (used by importer + dashboard) |
+
+### Configuration
+
+**Credentials (development default):**
+- User: `neo4j`
+- Password: `password123`
+
+See `docs/sessions/2026-08-03_163916.md` ("Future Notes") for security notes on rotating credentials and moving to `.env` files.
+
+**Docker Compose:**
+- Location: `neo4j_viz/docker-compose.yml`
+- Container name: `paper-processor-neo4j`
+- Image: `neo4j:latest` (should be pinned to a specific version in production)
+- Volumes: `./data`, `./logs`, `./import`, `./plugins` (persisted across restarts)
+
+### Integration with Pipeline
+
+The `paper_processor_dir.py` main loop runs a background thread (`_periodic_sync_worker`, line 1237) that:
+1. Waits 15 seconds after pipeline startup (to let initial papers begin processing).
+2. Every 300 seconds, checks if Neo4j Bolt port (7687) is reachable.
+3. If reachable, calls `neo4j_importer.py` to sync the `_processed/` directory into the graph.
+
+This means Neo4j does not need to be pre-running; the pipeline will detect when it comes online and begin syncing. However, systemd boot-order ensures Neo4j starts before the pipeline would typically run, so data is available immediately.
+
+### Troubleshooting & History
+
+Full troubleshooting guide: see `docs/TROUBLESHOOTING.md` ("Neo4j container won't start…" and "Permission denied…" sections).
+
+Detailed setup history, lessons learned, and future directions: see `docs/sessions/2026-08-03_163916.md`.
+
+### Architecture Diagram
+
+![Neo4j boot service and integration](diagrams/09_neo4j_boot_service.svg)

@@ -146,6 +146,56 @@ To reprocess only one stage, edit `metadata.json` and remove that stage's key, t
 
 ---
 
+## Neo4j container won't start after crash or reboot
+
+**Symptom:** Neo4j container fails to start. `docker compose logs` shows:
+```
+Error response from daemon: container is marked for removal and cannot be started
+```
+Or systemd service `paper-processor-neo4j` repeatedly exits with status=1/FAILURE.
+
+**Cause:** A prior run of the container or compose stack left a container in a "marked for removal" state, blocking new attempts to recreate it.
+
+**Fix:** Clean up stale containers and restart:
+```bash
+docker container prune -f
+docker system prune -f
+sudo systemctl restart paper-processor-neo4j.service
+```
+
+Verify the service is running:
+```bash
+sudo systemctl status paper-processor-neo4j.service
+curl -s http://localhost:7474 | head -3  # HTTP console should respond
+nc -zv localhost 7687                     # Bolt protocol should accept connections
+```
+
+---
+
+## Permission denied removing Neo4j data directories
+
+**Symptom:** When manually cleaning `neo4j_viz/data` or `neo4j_viz/logs` directories, `rm -rf` fails with many `Permission denied` errors:
+```
+rm: cannot remove 'data/databases/neo4j/neostore': Permission denied
+```
+
+**Cause:** Neo4j container runs with a non-jeb uid (7474), and Docker mounts volumes with that ownership. The local user cannot delete them.
+
+**Fix:** Use sudo to remove the directories:
+```bash
+cd neo4j_viz/
+sudo rm -rf data logs import plugins
+```
+
+Or let Docker handle cleanup via compose:
+```bash
+docker compose down -v  # -v also removes named volumes
+```
+
+**Prevention:** Always use `docker compose down -v` when stopping the stack intentionally, rather than manual `rm`.
+
+---
+
 ## Checking GPU utilization
 
 ```bash

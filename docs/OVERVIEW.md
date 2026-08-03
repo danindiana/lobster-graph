@@ -82,7 +82,7 @@ A few design choices matter more in practice than they sound on paper:
 - **It resumes where it left off.** Processing a large corpus takes time. If you interrupt it (or it crashes), it checkpoints after each section of each paper and picks up exactly where it stopped — it won't redo finished work.
 - **It handles scanned PDFs.** Older or photographed papers have no embedded text. The pipeline detects these and runs local OCR to read them anyway, instead of silently producing an empty summary.
 - **It's honest about its own brittleness.** The codebase has a test suite that explicitly documents where its parsers are fragile — which is a good sign in a tool you're trusting with your reading.
-- **The graph syncs as it works.** You don't have to wait for the whole corpus to finish; the dashboard fills in as papers complete.
+- **The graph syncs as it works.** You don't have to wait for the whole corpus to finish; the dashboard fills in as papers complete. Neo4j runs as a systemd service (auto-starts on boot) and ingests dossier metadata continuously as papers finish processing.
 
 ---
 
