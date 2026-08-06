@@ -57,6 +57,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.end_headers()
             return None
             
+        if path == "/webgl":
+            path = "/webgl.html"
+            
         # Intercept /api/sync to trigger Neo4j import
         if path == "/api/sync":
             import subprocess, json

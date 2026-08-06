@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lobster Graph — Paper Processing Analytics</title>
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Vis.js Network Library -->
+  <script src="https://unpkg.com/3d-force-graph"></script>
+  
+  <!-- Neo4j JavaScript Driver -->
+  <script src="https://unpkg.com/neo4j-driver"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --panel-bg: rgba(15, 23, 42, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      
+      /* Color Tiers for Graph Nodes */
+      --color-paper: #00e5ff;
+      --color-concept: #d500f9;
+      --color-theorem: #ffd600;
+      --color-algorithm: #ff6d00;
+      --color-code: #00e676;
+      --color-diagram: #ff1744;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      background-image: 
+        radial-gradient(at 10% 20%, rgba(21, 94, 117, 0.15) 0px, transparent 50%),
+        radial-gradient(at 90% 80%, rgba(88, 28, 135, 0.15) 0px, transparent 50%);
+    }
+
+    #app {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      position: relative;
+    }
+
+    /* Main Container */
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      position: relative;
+    }
+
+    /* Header Panel */
+    header {
+      padding: 18px 24px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #00e5ff, #d500f9);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand span {
+      background: rgba(0, 229, 255, 0.1);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      color: var(--color-paper);
+      padding: 2px 8px;
+      font-size: 11px;
+      border-radius: 99px;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .stats {
+      display: flex;
+      gap: 20px;
+    }
+
+    .stat-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .stat-val {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .stat-lbl {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    /* Graph Canvas */
+    #graph-network {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    #graph-network:active {
+      cursor: grabbing;
+    }
+
+    /* Controls Panel */
+    .controls-panel {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      max-height: calc(100vh - 124px);
+      overflow-y: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 10;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      width: 280px;
+    }
+
+    .search-box {
+      width: 100%;
+      position: relative;
+    }
+
+    .search-box input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .search-box input:focus {
+      border-color: rgba(0, 229, 255, 0.5);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.15);
+    }
+
+    .control-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .legend {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 6px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    /* Details Drawer */
+    .details-drawer {
+      width: 500px;
+      height: 100%;
+      background: rgba(10, 15, 30, 0.85);
+      backdrop-filter: blur(24px);
+      border-left: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      position: absolute;
+      right: 0;
+      top: 0;
+      z-index: 20;
+      box-shadow: -10px 0 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .details-drawer.open {
+      transform: translateX(0);
+    }
+
+    .drawer-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .drawer-title-group h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.2;
+    }
+
+    .drawer-title-group p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+
+    .close-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .drawer-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Scrollbar */
+    .drawer-content::-webkit-scrollbar,
+    .controls-panel::-webkit-scrollbar {
+      width: 6px;
+    }
+    .drawer-content::-webkit-scrollbar-track,
+    .controls-panel::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .drawer-content::-webkit-scrollbar-thumb,
+    .controls-panel::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 99px;
+    }
+    .drawer-content::-webkit-scrollbar-thumb:hover,
+    .controls-panel::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Metadata details classes */
+    .details-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .details-card h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .details-card p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+    }
+
+    /* Embedded Code Block */
+    .code-container {
+      background: #020617;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 14px;
+      overflow-x: auto;
+      font-family: 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #10b981;
+    }
+
+    /* Embedded SVG diagram container */
+    .diagram-container {
+      width: 100%;
+      background: #020617;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 250px;
+      overflow: hidden;
+    }
+
+    .diagram-container img {
+      max-width: 100%;
+      max-height: 350px;
+      object-fit: contain;
+      /* Invert black to white for dark mode readability, preserving other colors */
+      filter: invert(1) hue-rotate(180deg) brightness(1.2) drop-shadow(0 0 8px rgba(0, 229, 255, 0.15));
+    }
+
+    .empty-drawer {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: var(--text-muted);
+      gap: 12px;
+      font-size: 15px;
+    }
+
+    /* Overlay */
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .login-modal {
+      background: #0b111e;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 32px;
+      width: 400px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      text-align: center;
+    }
+
+    .login-modal h2 {
+      font-size: 24px;
+      font-weight: 700;
+      background: linear-gradient(90deg, #00e5ff, #d500f9);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .login-modal p {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+    }
+
+    .input-group label {
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    .input-group input {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      padding: 12px 14px;
+      border-radius: 8px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .input-group input:focus {
+      border-color: rgba(0, 229, 255, 0.5);
+    }
+
+    .login-modal .btn-primary {
+      background: linear-gradient(90deg, #00e5ff, #d500f9);
+      border: none;
+      color: #fff;
+      padding: 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0, 229, 255, 0.2);
+    }
+
+    .login-modal .btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    body.light-mode {
+      --bg-dark: #f8fafc;
+      --panel-bg: rgba(255, 255, 255, 0.85);
+      --border-color: rgba(0, 0, 0, 0.1);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      background-image: 
+        radial-gradient(at 10% 20%, rgba(21, 94, 117, 0.05) 0px, transparent 50%),
+        radial-gradient(at 90% 80%, rgba(88, 28, 135, 0.05) 0px, transparent 50%);
+    }
+    body.light-mode .stat-val, body.light-mode .drawer-title-group h2, body.light-mode .details-card p {
+      color: #0f172a;
+    }
+    body.light-mode .search-box input {
+      background: rgba(255, 255, 255, 0.6);
+      color: #0f172a;
+    }
+    body.light-mode .btn {
+      background: rgba(0, 0, 0, 0.05);
+      color: #0f172a;
+    }
+    body.light-mode .btn:hover {
+      background: rgba(0, 0, 0, 0.1);
+    }
+    body.light-mode .details-drawer {
+      background: rgba(248, 250, 252, 0.95);
+    }
+    body.light-mode .code-container {
+      background: #f1f5f9;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      color: #047857;
+    }
+    body.light-mode .diagram-container {
+      background: #f1f5f9;
+    }
+    body.light-mode .diagram-container img {
+      filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.1));
+    }
+    body.light-mode .login-modal {
+      background: #ffffff;
+    }
+    body.light-mode .login-modal p {
+      color: #475569;
+    }
+    body.light-mode .input-group input {
+      background: rgba(0, 0, 0, 0.05);
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app">
+    <!-- Neo4j Connection Modal -->
+    <div id="connection-overlay" class="overlay">
+      <div class="login-modal">
+        <i data-lucide="database" style="width: 48px; height: 48px; color: var(--color-paper); margin: 0 auto;"></i>
+        <h2>Connect to Graph DB</h2>
+        <p>Enter the Neo4j database endpoint and credentials configured on the workstation.</p>
+        
+        <div class="input-group">
+          <label>Bolt URL</label>
+          <input type="text" id="db-url" value="">
+        </div>
+        
+        <div class="input-group">
+          <label>Username</label>
+          <input type="text" id="db-user" value="neo4j">
+        </div>
+        
+        <div class="input-group">
+          <label>Password</label>
+          <input type="password" id="db-pass" value="password123">
+        </div>
+        
+        <div class="input-group" style="margin-bottom: 24px;">
+          <label>Target Dataset (Pipeline Target)</label>
+          <select id="dataset-select" style="width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); padding: 10px 14px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 13px; outline: none; transition: all 0.2s ease;">
+            <option value="/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed">/illoinois_edu/_processed</option>
+          </select>
+        </div>
+        
+        <button class="btn-primary" onclick="connectAndInitialize()">Initialize Dashboard</button>
+      </div>
+      <!-- Timeline Floating Panel -->
+      <div id="timeline-panel" style="display: none; position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 600px; max-width: 80%; background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px 25px; z-index: 10; box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Ingestion Timeline</span>
+            <span id="timeline-display" style="font-family: 'Outfit'; font-size: 14px; font-weight: 600; color: var(--color-paper);">All Time</span>
+        </div>
+        <input type="range" id="timeline-slider" min="0" max="1000" value="1000" style="width: 100%; cursor: pointer;" oninput="updateTimeTravel()">
+      </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="main-container">
+      <header>
+        <div class="brand">
+          <i data-lucide="shell" style="color: var(--color-paper); width: 24px; height: 24px;"></i>
+          <h1>LOBSTER GRAPH</h1>
+          <span>LAN Analytics Node</span>
+        </div>
+        <div class="stats">
+          <div class="stat-badge">
+            <span class="stat-val" id="count-papers">0</span>
+            <span class="stat-lbl">Papers</span>
+          </div>
+          <div class="stat-badge">
+            <span class="stat-val" id="count-concepts">0</span>
+            <span class="stat-lbl">Concepts</span>
+          </div>
+          <div class="stat-badge">
+            <span class="stat-val" id="count-relations">0</span>
+            <span class="stat-lbl">Edges</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Graph Network Container -->
+      <div id="graph-network"></div>
+
+      <!-- Controls & Legend -->
+      <div class="controls-panel">
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="Search concept or paper..." oninput="filterGraph()">
+        </div>
+        <div class="control-row">
+          <button class="btn" onclick="network.fit()"><i data-lucide="maximize" style="width: 14px; height: 14px;"></i>Fit View</button>
+          <button class="btn" id="theme-btn" onclick="toggleTheme()"><i data-lucide="sun" style="width: 14px; height: 14px;"></i>Theme</button>
+          <button class="btn" onclick="exportImage()"><i data-lucide="camera" style="width: 14px; height: 14px;"></i>Export 4K</button>
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" id="physics-btn" onclick="togglePhysics()"><i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON</button>
+          <button class="btn" id="stabilize-btn" onclick="toggleStabilization()"><i data-lucide="waves" style="width: 14px; height: 14px;"></i>Stabilize: OFF</button>
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" onclick="saveGraph()"><i data-lucide="download" style="width: 14px; height: 14px;"></i>Save State</button>
+          <button class="btn" onclick="document.getElementById('file-input').click()"><i data-lucide="upload" style="width: 14px; height: 14px;"></i>Load State</button>
+          <button class="btn" id="live-sync-btn" onclick="toggleLiveSync()"><i data-lucide="activity" style="width: 14px; height: 14px;"></i>Live Sync: OFF</button>
+          <input type="file" id="file-input" style="display: none;" accept=".json" onchange="loadGraph(event)">
+        </div>
+        <div class="control-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); align-items: center;">
+          <button class="btn" id="focus-btn" onclick="toggleFocusMode()"><i data-lucide="target" style="width: 14px; height: 14px;"></i>Focus: OFF</button>
+          <button class="btn" id="hubs-btn" onclick="toggleHubsMode()"><i data-lucide="share-2" style="width: 14px; height: 14px;"></i>Hubs: OFF</button>
+          <button class="btn" id="orbit-btn" onclick="toggleOrbitMode()"><i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: OFF</button>
+          <input type="range" id="orbit-speed" min="0.1" max="5.0" step="0.1" value="1.0" style="display: none; width: 60px; margin-left: 8px;" title="Orbit Speed Multiplier">
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" id="tree-btn" onclick="toggleTreeMode()"><i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF</button>
+          <button class="btn" id="radar-btn" onclick="toggleRadarMode()"><i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF</button>
+          <button class="btn" id="time-btn" onclick="toggleTimeTravel()"><i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: OFF</button>
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" id="lod-btn" onclick="toggleLOD()"><i data-lucide="layers" style="width: 14px; height: 14px;"></i>Auto-LOD: OFF</button>
+        </div>
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Data Filtering</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11px; color: var(--text-muted);">MIN CONNECTIONS</span>
+          <span id="min-conn-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">0</span>
+        </div>
+        <input type="range" id="min-conn-slider" min="0" max="20" step="1" value="0" style="width: 100%;" class="slider" oninput="document.getElementById('min-conn-val').innerText=this.value; filterGraph();">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; margin-top: 12px;">
+          <span style="font-size: 11px; color: var(--text-muted);">MAX NODES</span>
+          <span id="max-nodes-val" style="font-size: 11px; color: #6ee7b7; font-weight: bold;">ALL</span>
+        </div>
+        <input type="range" id="max-nodes-slider" min="50" max="3000" step="50" value="3000" style="width: 100%;" class="slider" oninput="document.getElementById('max-nodes-val').innerText=this.value == 3000 ? 'ALL' : this.value; filterGraph();">
+
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 16px 0 8px 0; font-weight: 600; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Physics Tuning</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11px; color: var(--text-muted);">GRAVITY</span>
+          <input type="range" id="slider-gravity" min="0" max="0.1" step="0.005" value="0.01" style="width: 100px;" oninput="updatePhysics()">
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11px; color: var(--text-muted);">REPULSION</span>
+          <input type="range" id="slider-repulsion" min="-500" max="-10" step="10" value="-50" style="width: 100px;" oninput="updatePhysics()">
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-size: 11px; color: var(--text-muted);">SPEED</span>
+          <input type="range" id="slider-speed" min="0.1" max="2" step="0.1" value="0.5" style="width: 100px;" oninput="updatePhysics()">
+        </div>
+        <div class="control-row" style="margin-top: 8px;">
+          <button class="btn" onclick="clearDatabase()" style="color: #ff4444; border-color: rgba(255,68,68,0.3); width: 100%;"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>Clear DB</button>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-paper); background: var(--color-paper)"></span>Paper Node</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-concept); background: var(--color-concept)"></span>Core Concept</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-theorem); background: var(--color-theorem)"></span>Theorem</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-algorithm); background: var(--color-algorithm)"></span>Pseudocode</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-code); background: var(--color-code)"></span>C++ Code</div>
+          <div class="legend-item"><span class="legend-dot" style="color: var(--color-diagram); background: var(--color-diagram)"></span>System Schema</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Minimap / Radar -->
+    <div id="minimap-container" style="display: none; position: absolute; bottom: 20px; right: 20px; width: 250px; height: 250px; background: rgba(9, 13, 22, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; z-index: 1000; box-shadow: 0 4px 16px rgba(0,0,0,0.6);">
+      <canvas id="minimap-canvas" width="250" height="250" style="width: 100%; height: 100%; border-radius: 12px;"></canvas>
+    </div>
+
+    <!-- Inspector Drawer -->
+    <div id="drawer" class="details-drawer">
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <h2 id="drawer-node-name">Node Detail</h2>
+          <p id="drawer-node-type">Concept</p>
+        </div>
+        <button class="close-btn" onclick="closeDrawer()"><i data-lucide="x" style="width: 20px; height: 20px;"></i></button>
+      </div>
+      <div class="drawer-content" id="drawer-node-content">
+        <!-- Rendered dynamically -->
+        <div class="empty-drawer">
+          <i data-lucide="info" style="width: 32px; height: 32px;"></i>
+          <span>Click a node in the graph network to inspect detailed content.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize icons
+    lucide.createIcons();
+
+    // Default Bolt URL to current host dynamically for flawless LAN operation
+    document.getElementById("db-url").value = "bolt://" + window.location.hostname + ":7687";
+
+    let driver = null;
+    let graphWorker = null;
+    
+    
+    
+    
+    let network = null;
+    let rawNodes = [];
+    let rawEdges = [];
+    let isPhysicsActive = true;
+    let isStabilizationEnabled = false;
+    let isFocusModeEnabled = false;
+    let isHubsModeEnabled = false;
+    let isTreeModeEnabled = false;
+    let isRadarModeEnabled = false;
+    let isTimeTravelEnabled = false;
+    let isLiveSyncEnabled = false;
+    let isHysteresisEnabled = false;
+    let currentLodState = 'detailed';
+    let liveSyncInterval = null;
+    let timeMin = 0;
+    let timeMax = 0;
+    let windowCutoff = 0;
+    let selectedNodeIds = [];
+    let isOrbitModeEnabled = false;
+    let orbitInterval = null;
+    let orbitInitialPositions = null;
+    let orbitCenter = null;
+    let orbitAngle = 0;
+
+    async function connectAndInitialize() {
+      const url = document.getElementById("db-url").value;
+      const user = document.getElementById("db-user").value;
+      const pass = document.getElementById("db-pass").value;
+      const dataset = document.getElementById("dataset-select").value;
+
+      if (!graphWorker) {
+          graphWorker = new Worker("worker_webgl.js");
+          graphWorker.onmessage = function(e) {
+              if (e.data.type === 'CONNECTED') {
+                  document.getElementById("connection-overlay").style.display = "none";
+                  
+                  // Load data gracefully over time via worker stream
+                  graphWorker.postMessage({ type: 'FETCH_GRAPH', isLight: document.body.classList.contains('light-mode') });
+                  
+                  // Trigger server sync in background, which will update graph again if changes occur
+                  fetch('/api/sync').then(() => {
+                      graphWorker.postMessage({ type: 'FETCH_GRAPH', isLight: document.body.classList.contains('light-mode') });
+                  }).catch(err => console.error(err));
+              } else if (e.data.type === 'BATCH') {
+                  if (!network) drawNetwork();
+                  
+                  const newNodes = e.data.nodes.filter(n => !rawNodes.find(rn => rn.id === n.id));
+                  const newEdges = e.data.edges.filter(e => !rawEdges.find(re => re.id === e.id));
+                  
+                  if (newNodes.length > 0) {
+                      rawNodes.push(...newNodes);
+                  }
+                  if (newEdges.length > 0) {
+                      rawEdges.push(...newEdges);
+                  }
+                  
+                  document.getElementById("count-papers").textContent = e.data.pCount;
+                  document.getElementById("count-concepts").textContent = e.data.cCount;
+                  document.getElementById("count-relations").textContent = rawEdges.length;
+                  
+                  // Pulse to show activity
+                  const btn = document.getElementById("live-sync-btn");
+                  btn.style.color = "#a7f3d0";
+                  setTimeout(() => { btn.style.color = "#6ee7b7"; }, 500);
+
+                  filterGraph(); // Re-apply UI filters to new nodes
+              } else if (e.data.type === 'DONE') {
+                  console.log("Graph stream complete.");
+              } else if (e.data.type === 'ERROR') {
+                  alert("Worker Error: " + e.data.error);
+                  console.error(e.data.error);
+              }
+          };
+      }
+
+      try {
+        await fetch('/api/set_dataset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: dataset })
+        });
+
+        // Initialize driver on main thread just for single node queries (fetchNodeDetails)
+        driver = neo4j.driver(url, neo4j.auth.basic(user, pass));
+        
+        graphWorker.postMessage({ type: 'CONNECT', uri: url, user: user, pass: pass });
+      } catch (err) {
+        alert("Connection request failed: " + err.message);
+        console.error(err);
+      }
+    }
+
+
+    function parseNode(node) {
+      const id = node.identity.toString();
+      const labels = node.labels;
+      const label = labels[0] || "Unknown";
+      const props = node.properties;
+      
+      let title = props.name || props.title || "Untitled";
+      let color = "#fff";
+      let shape = "dot";
+      let size = 15;
+
+      // Classify node types and assign sleek aesthetic variables
+      if (labels.includes("Paper")) {
+        color = "#00e5ff";
+        shape = "dot";
+        size = 28;
+      } else if (labels.includes("Concept")) {
+        color = "#d500f9";
+        shape = "dot";
+        size = 18;
+      } else if (labels.includes("Theorem")) {
+        color = "#ffd600";
+        shape = "diamond";
+        size = 14;
+      } else if (labels.includes("Algorithm")) {
+        color = "#ff6d00";
+        shape = "triangle";
+        size = 14;
+      } else if (labels.includes("CodeSnippet")) {
+        color = "#00e676";
+        shape = "square";
+        size = 14;
+      } else if (labels.includes("Diagram")) {
+        color = "#ff1744";
+        shape = "hexagon";
+        size = 14;
+      }
+
+      const isLight = document.body.classList.contains('light-mode');
+      return {
+        id: id,
+        label: title.length > 20 ? title.substring(0, 18) + "..." : title,
+        title: title, // full title for tooltip
+        shape: shape,
+        size: size,
+        color: {
+          background: isLight ? "rgba(255, 255, 255, 0.9)" : "rgba(9, 13, 22, 0.9)",
+          border: color,
+          highlight: { background: isLight ? "rgba(0, 229, 255, 0.1)" : "rgba(0, 229, 255, 0.2)", border: "#00e5ff" }
+        },
+        font: { color: isLight ? "#0f172a" : "#e2e8f0", size: 12, face: "Outfit", strokeWidth: 0 },
+        properties: props,
+        type: label,
+        fx: props.fx ? parseFloat(props.fx) : undefined,
+        fy: props.fy ? parseFloat(props.fy) : undefined,
+        fz: 0
+      };
+    }
+
+    function drawNetwork() {
+      const container = document.getElementById("graph-network");
+      network = ForceGraph3D()(container)
+          .numDimensions(2)
+          .backgroundColor('transparent')
+          .nodeLabel(n => escapeHtml(n.title))
+          .nodeColor(n => "cyan")
+          .nodeVal(n => n.size / 5)
+          .linkColor(e => "rgba(0, 229, 255, 0.4)")
+          .linkWidth(1)
+          .onNodeClick(node => {
+              showNodeDetails(node);
+              selectedNodeIds = [node.id];
+              if (isFocusModeEnabled) filterGraph();
+          })
+          .onBackgroundClick(() => {
+              closeDrawer();
+              selectedNodeIds = [];
+              if (isFocusModeEnabled) filterGraph();
+          });
+          
+      // Disable frontend physics engine completely to use GPU coordinates
+      network.d3Force('charge', null);
+      network.d3Force('link', null);
+      network.d3Force('center', null);
+          
+      // Mock vis-network methods to prevent UI buttons from crashing
+      network.fit = () => network.zoomToFit(400);
+      network.getScale = () => 1;
+      network.getPositions = () => {
+        const out = {};
+        rawNodes.forEach(n => { out[n.id] = { x: n.fx || 0, y: n.fy || 0 }; });
+        return out;
+      };
+      network.setOptions = () => {};
+      network.startSimulation = () => {};
+      network.stabilize = () => {};
+      network.on = () => {};
+      network.moveTo = () => {};
+      network.setSize = () => {};
+      network.redraw = () => {};
+    }
+
+    function toggleAutoLOD() {
+        isHysteresisEnabled = !isHysteresisEnabled;
+        const btn = document.getElementById("lod-toggle");
+        if (btn) btn.classList.toggle("active", isHysteresisEnabled);
+        if (!isHysteresisEnabled) {
+            currentLodState = 'detailed';
+            filterGraph();
+        } else {
+            const scale = network.getScale();
+            currentLodState = scale < 0.25 ? 'summary' : 'detailed';
+            filterGraph();
+        }
+    }
+
+    function showNodeDetails(node) {
+      const drawer = document.getElementById("drawer");
+      const title = document.getElementById("drawer-node-name");
+      const type = document.getElementById("drawer-node-type");
+      const content = document.getElementById("drawer-node-content");
+
+      title.textContent = node.properties.name || node.properties.title || "Untitled";
+      type.textContent = node.type;
+      
+      // Color title based on type
+      let typeColor = "var(--color-concept)";
+      if (node.type === "Paper") typeColor = "var(--color-paper)";
+      else if (node.type === "Theorem") typeColor = "var(--color-theorem)";
+      else if (node.type === "Algorithm") typeColor = "var(--color-algorithm)";
+      else if (node.type === "CodeSnippet") typeColor = "var(--color-code)";
+      else if (node.type === "Diagram") typeColor = "var(--color-diagram)";
+      
+      type.style.color = typeColor;
+
+      let html = "";
+      const props = node.properties;
+
+      if (node.type === "Paper") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="info"></i>Overview</h3>
+            <p><strong>Hash:</strong> ${props.paper_hash || "N/A"}</p>
+            <p><strong>Page Count:</strong> ${props.page_count || 0}</p>
+            <p><strong>Strategy:</strong> ${props.chunk_strategy || "N/A"}</p>
+            <p><strong>Processed:</strong> ${props.processed_at || "N/A"}</p>
+          </div>
+          ${props.motivation ? `
+            <div class="details-card">
+              <h3><i data-lucide="sparkles"></i>Motivation & Problem Statement</h3>
+              <p>${escapeHtml(props.motivation)}</p>
+            </div>
+          ` : ""}
+          ${props.methodology ? `
+            <div class="details-card">
+              <h3><i data-lucide="layers"></i>Core Methodology</h3>
+              <p>${escapeHtml(props.methodology)}</p>
+            </div>
+          ` : ""}
+          ${props.contributions ? `
+            <div class="details-card">
+              <h3><i data-lucide="award"></i>Key Contributions</h3>
+              <p>${escapeHtml(props.contributions)}</p>
+            </div>
+          ` : ""}
+          ${props.limitations ? `
+            <div class="details-card">
+              <h3><i data-lucide="alert-triangle"></i>Limitations</h3>
+              <p>${escapeHtml(props.limitations)}</p>
+            </div>
+          ` : ""}
+          ${props.significance ? `
+            <div class="details-card">
+              <h3><i data-lucide="trending-up"></i>Significance</h3>
+              <p>${escapeHtml(props.significance)}</p>
+            </div>
+          ` : ""}
+          ${props.extras ? `
+            <div class="details-card">
+              <h3><i data-lucide="lightbulb"></i>Critical Analysis / Extras</h3>
+              <p>${escapeHtml(props.extras)}</p>
+            </div>
+          ` : ""}
+        `;
+      } else if (node.type === "Concept") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="help-circle"></i>Core Definition</h3>
+            <p>${escapeHtml(props.definition) || "No definition available."}</p>
+          </div>
+        `;
+      } else if (node.type === "Theorem") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="compass"></i>Theorem/Proposition Statement</h3>
+            <p>${escapeHtml(props.statement) || "No statement details available."}</p>
+          </div>
+        `;
+      } else if (node.type === "Algorithm") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="code-2"></i>Formal Pseudocode</h3>
+            <div class="code-container">${escapeHtml(props.pseudocode) || "No code loaded."}</div>
+          </div>
+          ${props.invariant ? `
+            <div class="details-card">
+              <h3><i data-lucide="activity"></i>Loop Invariant</h3>
+              <p>${props.invariant}</p>
+            </div>
+          ` : ""}
+        `;
+      } else if (node.type === "CodeSnippet") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="terminal"></i>C++ Implementation Examples</h3>
+            <div class="code-container" style="color: #6ee7b7;">${escapeHtml(props.code) || "No code loaded."}</div>
+          </div>
+        `;
+      } else if (node.type === "Diagram") {
+        html = `
+          <div class="details-card">
+            <h3><i data-lucide="image"></i>Graphviz Diagram Rendering</h3>
+            <div class="diagram-container">
+              <img src="/${props.svg_path}" alt="${escapeHtml(props.title)}" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22><text y=%2250%22 x=%2210%22 fill=%22red%22>Diagram SVG not found</text></svg>'">
+            </div>
+          </div>
+          <div class="details-card">
+            <h3><i data-lucide="align-left"></i>DOT Source</h3>
+            <div class="code-container" style="color: #93c5fd; font-size: 11px;">${escapeHtml(props.dot_src) || "No source loaded."}</div>
+          </div>
+        `;
+      }
+
+      content.innerHTML = html;
+      lucide.createIcons(); // Initialize icons in drawer
+      drawer.classList.add("open");
+    }
+
+    function closeDrawer() {
+      document.getElementById("drawer").classList.remove("open");
+    }
+
+    async function saveGraph() {
+      if (!network || rawNodes.length === 0) {
+        alert("No graph data to save!");
+        return;
+      }
+      
+      const btn = document.querySelector('button[onclick="saveGraph()"]');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = `<i data-lucide="loader" class="spin" style="width: 14px; height: 14px; animation: spin 1s linear infinite;"></i>Exporting...`;
+      
+      try {
+          const positions = network.getPositions();
+          const exportNodes = rawNodes.map(n => ({
+            ...n,
+            x: positions[n.id]?.x,
+            y: positions[n.id]?.y
+          }));
+          
+          const payload = { nodes: exportNodes, edges: rawEdges };
+          
+          // Send to backend to generate Parquet and JSONL zip
+          const response = await fetch('/api/export', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+          
+          if (!response.ok) throw new Error("Backend export failed");
+          
+          const result = await response.json();
+          if (result.url) {
+              const a = document.createElement('a');
+              a.href = result.url;
+              a.download = result.url.split('/').pop();
+              a.click();
+          } else {
+              throw new Error("No URL returned");
+          }
+      } catch(err) {
+          console.warn("Backend export failed, falling back to local JSON download:", err);
+          // Fallback to purely local JSON save
+          const positions = network.getPositions();
+          const exportNodes = rawNodes.map(n => ({
+            ...n,
+            x: positions[n.id]?.x,
+            y: positions[n.id]?.y
+          }));
+          const data = JSON.stringify({ nodes: exportNodes, edges: rawEdges }, null, 2);
+          const blob = new Blob([data], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          a.download = `lobster_graph_state_${timestamp}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+      } finally {
+          btn.innerHTML = originalText;
+          lucide.createIcons();
+      }
+    }
+
+    function loadGraph(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data.nodes || !data.edges) throw new Error("Invalid graph JSON format");
+          
+          rawNodes = data.nodes;
+          rawEdges = data.edges;
+          
+          let pCount = 0, cCount = 0;
+          rawNodes.forEach(n => {
+             if (n.shape === "dot" && n.size === 28) pCount++;
+             else if (n.shape === "dot" && n.size === 18) cCount++;
+          });
+          document.getElementById("count-papers").textContent = pCount;
+          document.getElementById("count-concepts").textContent = cCount;
+          document.getElementById("count-relations").textContent = rawEdges.length;
+
+          if (!network) drawNetwork();
+          filterGraph();
+
+          isPhysicsActive = false;
+          const btn = document.getElementById("physics-btn");
+          if (btn) btn.innerHTML = `<i data-lucide="play" style="width: 14px; height: 14px;"></i>Resume Layout`;
+          lucide.createIcons();
+          
+          document.getElementById("connection-overlay").style.display = "none";
+          network.fit();
+          
+        } catch(err) {
+          alert("Error loading graph state: " + err.message);
+        }
+        // reset file input
+        event.target.value = '';
+      };
+      reader.readAsText(file);
+    }
+
+    function exportImage() {
+       const container = document.getElementById("graph-network");
+       const canvas = container.querySelector("canvas");
+       if (!canvas || !network) {
+          alert("Graph network not ready.");
+          return;
+       }
+       
+       // Save original view state
+       const originalWidth = container.style.width;
+       const originalHeight = container.style.height;
+       const originalTransform = network.getViewPosition();
+       const originalScale = network.getScale();
+       
+       // Force 4K resolution on the container (UHD 3840x2160)
+       container.style.width = "3840px";
+       container.style.height = "2160px";
+       network.setSize("3840px", "2160px");
+       network.fit(); 
+       network.redraw(); 
+       
+       // Wait for the next animation frame to let the canvas context update its backing buffer
+       setTimeout(() => {
+           try {
+               // Capture with white or dark background depending on theme
+               const tempCanvas = document.createElement("canvas");
+               tempCanvas.width = 3840;
+               tempCanvas.height = 2160;
+               const ctx = tempCanvas.getContext("2d");
+               
+               // Fill background
+               ctx.fillStyle = document.body.classList.contains('light-mode') ? "#f8fafc" : "#090d16";
+               ctx.fillRect(0, 0, 3840, 2160);
+               // Draw the graph over it
+               ctx.drawImage(canvas, 0, 0, 3840, 2160);
+               
+               const dataUrl = tempCanvas.toDataURL("image/png", 1.0);
+               
+               const link = document.createElement("a");
+               link.href = dataUrl;
+               const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+               link.download = `lobster_graph_4k_export_${timestamp}.png`;
+               document.body.appendChild(link);
+               link.click();
+               document.body.removeChild(link);
+           } catch(err) {
+               console.error("Failed to export 4K image:", err);
+               alert("Failed to export image.");
+           } finally {
+               // Restore original dimensions and view
+               container.style.width = originalWidth || "100%";
+               container.style.height = originalHeight || "100vh";
+               network.setSize("100%", "100%");
+               network.moveTo({ position: originalTransform, scale: originalScale });
+           }
+       }, 500); 
+    }
+    async function clearDatabase() {
+      if (!confirm("⚠️ WARNING: This will permanently delete all nodes and relationships in the active Neo4j database.\n\nAre you sure you want to proceed?")) {
+        return;
+      }
+      if (!driver) {
+        alert("Not currently connected to a Neo4j database.");
+        return;
+      }
+      const session = driver.session();
+      try {
+        await session.run("MATCH (n) DETACH DELETE n");
+        alert("Database cleared successfully!");
+        rawNodes = [];
+        rawEdges = [];
+        if (network) filterGraph();
+        document.getElementById("count-papers").textContent = "0";
+        document.getElementById("count-concepts").textContent = "0";
+        document.getElementById("count-relations").textContent = "0";
+      } catch (err) {
+        alert("Error clearing database: " + err.message);
+      } finally {
+        await session.close();
+      }
+    }
+
+    function updatePhysics() {
+        if (!network || !isPhysicsActive) return;
+        const gravity = parseFloat(document.getElementById("slider-gravity").value);
+        const repulsion = parseFloat(document.getElementById("slider-repulsion").value);
+        const speed = parseFloat(document.getElementById("slider-speed").value);
+        
+        network.setOptions({
+            physics: {
+                forceAtlas2Based: {
+                    gravitationalConstant: repulsion,
+                    centralGravity: gravity,
+                },
+                timestep: speed
+            }
+        });
+        network.startSimulation();
+    }
+
+    function togglePhysics() {
+      isPhysicsActive = !isPhysicsActive;
+      network.setOptions({ physics: { enabled: isPhysicsActive } });
+      
+      if (isPhysicsActive) {
+         updatePhysics();
+         if (isOrbitModeEnabled) toggleOrbitMode();
+      }
+
+      const btn = document.getElementById("physics-btn");
+      if (isPhysicsActive) {
+        btn.innerHTML = `<i data-lucide="zap" style="width: 14px; height: 14px;"></i>Physics: ON`;
+      } else {
+        btn.innerHTML = `<i data-lucide="zap-off" style="width: 14px; height: 14px;"></i>Physics: OFF`;
+      }
+      lucide.createIcons();
+    }
+    
+    function toggleFocusMode() {
+      isFocusModeEnabled = !isFocusModeEnabled;
+      const btn = document.getElementById("focus-btn");
+      btn.innerHTML = `<i data-lucide="target" style="width: 14px; height: 14px;"></i>Focus: ${isFocusModeEnabled ? "ON" : "OFF"}`;
+      lucide.createIcons();
+      filterGraph();
+    }
+
+    function toggleHubsMode() {
+      isHubsModeEnabled = !isHubsModeEnabled;
+      const btn = document.getElementById("hubs-btn");
+      btn.innerHTML = `<i data-lucide="share-2" style="width: 14px; height: 14px;"></i>Hubs: ${isHubsModeEnabled ? "ON" : "OFF"}`;
+      lucide.createIcons();
+      filterGraph();
+    }
+
+    function toggleTreeMode() {
+      isTreeModeEnabled = !isTreeModeEnabled;
+      const btn = document.getElementById("tree-btn");
+      if (isTreeModeEnabled) {
+        network.setOptions({ layout: { hierarchical: { enabled: true, sortMethod: 'directed', nodeSpacing: 150, treeSpacing: 200 } } });
+        btn.innerHTML = `<i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: ON`;
+      } else {
+        network.setOptions({ layout: { hierarchical: { enabled: false } } });
+        btn.innerHTML = `<i data-lucide="git-merge" style="width: 14px; height: 14px;"></i>Tree: OFF`;
+      }
+      lucide.createIcons();
+    }
+
+    function toggleRadarMode() {
+      isRadarModeEnabled = !isRadarModeEnabled;
+      const btn = document.getElementById("radar-btn");
+      const container = document.getElementById("minimap-container");
+
+      if (isRadarModeEnabled) {
+        container.style.display = "block";
+        btn.innerHTML = `<i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: ON`;
+        filterGraph(); // triggers renderMinimap() with the current visible node set
+      } else {
+        container.style.display = "none";
+        btn.innerHTML = `<i data-lucide="crosshair" style="width: 14px; height: 14px;"></i>Radar: OFF`;
+      }
+      lucide.createIcons();
+    }
+
+    // Lightweight top-down minimap: plots visible node (x,y) positions onto a
+    // small canvas. Positions come pre-computed (GPU ForceAtlas2 layout via
+    // compute_layout.py), so no physics/camera tracking is needed here.
+    function renderMinimap(nodes) {
+      const canvas = document.getElementById("minimap-canvas");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      if (!nodes || nodes.length === 0) return;
+
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      nodes.forEach(n => {
+        const x = n.x || 0, y = n.y || 0;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      });
+      const spanX = Math.max(maxX - minX, 1);
+      const spanY = Math.max(maxY - minY, 1);
+      const pad = 10;
+
+      nodes.forEach(n => {
+        const x = n.x || 0, y = n.y || 0;
+        const px = pad + ((x - minX) / spanX) * (w - pad * 2);
+        const py = pad + ((y - minY) / spanY) * (h - pad * 2);
+        ctx.fillStyle = (n.color && n.color.border) ? n.color.border : "#00e5ff";
+        ctx.beginPath();
+        ctx.arc(px, py, n.type === "Paper" ? 3 : 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    function toggleTimeTravel() {
+      isTimeTravelEnabled = !isTimeTravelEnabled;
+      const btn = document.getElementById("time-btn");
+      const panel = document.getElementById("timeline-panel");
+      
+      if (isTimeTravelEnabled) {
+        btn.innerHTML = `<i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: ON`;
+        
+        const timestamps = rawNodes
+           .filter(n => n.type === "Paper" && n.properties && n.properties.processed_at)
+           .map(n => new Date(n.properties.processed_at).getTime());
+           
+        if (timestamps.length > 0) {
+            timeMin = Math.min(...timestamps) - 1000;
+            timeMax = Math.max(...timestamps) + 1000;
+        } else {
+            timeMin = Date.now() - 86400000; 
+            timeMax = Date.now();
+        }
+        
+        windowCutoff = timeMax;
+        document.getElementById("timeline-slider").value = 1000;
+        document.getElementById("timeline-display").innerText = new Date(windowCutoff).toLocaleString();
+        
+        panel.style.display = "block";
+      } else {
+        btn.innerHTML = `<i data-lucide="clock" style="width: 14px; height: 14px;"></i>Time: OFF`;
+        panel.style.display = "none";
+      }
+      lucide.createIcons();
+      filterGraph();
+    }
+
+    function updateTimeTravel() {
+        if (!isTimeTravelEnabled) return;
+        const slider = document.getElementById("timeline-slider");
+        const val = parseInt(slider.value);
+        windowCutoff = timeMin + ((timeMax - timeMin) * (val / 1000));
+        document.getElementById("timeline-display").innerText = new Date(windowCutoff).toLocaleString();
+        filterGraph();
+    }
+
+
+    function toggleOrbitMode() {
+      isOrbitModeEnabled = !isOrbitModeEnabled;
+      const btn = document.getElementById("orbit-btn");
+      const speedSlider = document.getElementById("orbit-speed");
+      
+      if (isOrbitModeEnabled) {
+        btn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: ON`;
+        speedSlider.style.display = "inline-block";
+        
+        if(isPhysicsActive) {
+          togglePhysics();
+        }
+
+        orbitInitialPositions = network.getPositions();
+        let cx = 0, cy = 0, count = 0;
+        for (let id in orbitInitialPositions) {
+           cx += orbitInitialPositions[id].x;
+           cy += orbitInitialPositions[id].y;
+           count++;
+        }
+        if(count > 0) { cx /= count; cy /= count; }
+        orbitCenter = {x: cx, y: cy};
+        orbitAngle = 0;
+        
+        orbitInterval = setInterval(() => {
+          const speedMultiplier = parseFloat(speedSlider.value);
+          orbitAngle += 0.005 * speedMultiplier;
+          const cosA = Math.cos(orbitAngle);
+          const sinA = Math.sin(orbitAngle);
+          
+          const posById = {};
+          for (let id in orbitInitialPositions) {
+            let x = orbitInitialPositions[id].x - orbitCenter.x;
+            let y = orbitInitialPositions[id].y - orbitCenter.y;
+            posById[id] = { x: x * cosA - y * sinA + orbitCenter.x, y: x * sinA + y * cosA + orbitCenter.y };
+          }
+          rawNodes.forEach(n => {
+            const p = posById[n.id];
+            if (p) { n.fx = p.x; n.fy = p.y; }
+          });
+          filterGraph();
+        }, 50);
+      } else {
+        btn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>Orbit: OFF`;
+        speedSlider.style.display = "none";
+        if (orbitInterval) {
+           clearInterval(orbitInterval);
+           orbitInterval = null;
+        }
+      }
+      lucide.createIcons();
+    }
+
+    async function updateGraphData() {
+        try {
+            await fetch('/api/sync');
+        } catch (e) {
+            console.warn("Failed to trigger server sync:", e);
+        }
+        if (graphWorker) {
+            graphWorker.postMessage({ type: 'FETCH_GRAPH', isLight: document.body.classList.contains('light-mode') });
+        }
+    }
+
+    function toggleLOD() {
+        isHysteresisEnabled = !isHysteresisEnabled;
+        const btn = document.getElementById("lod-btn");
+        if (isHysteresisEnabled) {
+            btn.innerHTML = `<i data-lucide="layers" style="width: 14px; height: 14px;"></i>Auto-LOD: ON`;
+            // Trigger check manually to sync state
+            if (network) {
+                const scale = network.getScale();
+                if (scale < 0.25) currentLodState = 'summary';
+                else currentLodState = 'detailed';
+            }
+        } else {
+            btn.innerHTML = `<i data-lucide="layers" style="width: 14px; height: 14px;"></i>Auto-LOD: OFF`;
+            currentLodState = 'detailed';
+        }
+        lucide.createIcons();
+        filterGraph();
+    }
+
+    function toggleLiveSync() {
+        isLiveSyncEnabled = !isLiveSyncEnabled;
+        const btn = document.getElementById("live-sync-btn");
+        
+        if (isLiveSyncEnabled) {
+            btn.innerHTML = `<i data-lucide="activity" style="width: 14px; height: 14px;"></i>Live Sync: ON`;
+            btn.style.borderColor = "#6ee7b7";
+            btn.style.color = "#6ee7b7";
+            
+            // Immediate sync, then every 5 seconds
+            updateGraphData();
+            liveSyncInterval = setInterval(updateGraphData, 5000);
+        } else {
+            btn.innerHTML = `<i data-lucide="activity" style="width: 14px; height: 14px;"></i>Live Sync: OFF`;
+            btn.style.borderColor = "rgba(110, 231, 183, 0.3)";
+            btn.style.color = "#6ee7b7";
+            if (liveSyncInterval) clearInterval(liveSyncInterval);
+        }
+        lucide.createIcons();
+    }
+
+    function toggleStabilization() {
+      isStabilizationEnabled = !isStabilizationEnabled;
+      const btn = document.getElementById("stabilize-btn");
+      
+      if (isStabilizationEnabled) {
+        network.setOptions({ physics: { stabilization: { iterations: 150, updateInterval: 25 } } });
+        btn.innerHTML = `<i data-lucide="anchor" style="width: 14px; height: 14px;"></i>Stabilize: ON`;
+        if (isPhysicsActive) network.stabilize();
+      } else {
+        network.setOptions({ physics: { stabilization: false } });
+        btn.innerHTML = `<i data-lucide="waves" style="width: 14px; height: 14px;"></i>Stabilize: OFF`;
+      }
+      lucide.createIcons();
+    }
+
+    function toggleTheme() {
+      document.body.classList.toggle('light-mode');
+      const isLight = document.body.classList.contains('light-mode');
+      
+      const themeBtn = document.getElementById("theme-btn");
+      if(isLight) {
+        themeBtn.innerHTML = `<i data-lucide="moon" style="width: 14px; height: 14px;"></i>Dark Mode`;
+      } else {
+        themeBtn.innerHTML = `<i data-lucide="sun" style="width: 14px; height: 14px;"></i>Light Mode`;
+      }
+      lucide.createIcons();
+
+      // Update edge colors in place (nodes are handled by filterGraph)
+      rawEdges.forEach(e => {
+        e.color = { color: isLight ? "rgba(0,0,0,0.3)" : "rgba(255, 255, 255, 0.12)" };
+        e.font = { color: isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.3)" };
+      });
+
+      filterGraph();
+    }
+
+    function filterGraph() {
+      const q = document.getElementById("search-input").value.toLowerCase();
+      const isLight = document.body.classList.contains('light-mode');
+      const minConn = parseInt(document.getElementById("min-conn-slider")?.value || "0");
+      const maxNodesSliderVal = parseInt(document.getElementById("max-nodes-slider")?.value || "3000");
+      const maxNodes = maxNodesSliderVal >= 3000 ? Infinity : maxNodesSliderVal;
+      
+      let degrees = {};
+      rawEdges.forEach(e => {
+         degrees[e.source.id || e.source] = (degrees[e.source.id || e.source] || 0) + 1;
+         degrees[e.target.id || e.target] = (degrees[e.target.id || e.target] || 0) + 1;
+      });
+
+      let allowedByMaxNodes = null;
+      if (maxNodes < Infinity) {
+          let sortedNodes = [...rawNodes].sort((a, b) => {
+              // Prioritize papers, then degree
+              if (a.type === "Paper" && b.type !== "Paper") return -1;
+              if (b.type === "Paper" && a.type !== "Paper") return 1;
+              return (degrees[b.id] || 0) - (degrees[a.id] || 0);
+          });
+          allowedByMaxNodes = new Set(sortedNodes.slice(0, maxNodes).map(n => n.id));
+      }
+
+      let allowedNodes = null;
+      if (isTimeTravelEnabled) {
+          let allowedPapers = new Set();
+          rawNodes.forEach(n => {
+              if (n.type === "Paper" && n.properties && n.properties.processed_at) {
+                  if (new Date(n.properties.processed_at).getTime() <= windowCutoff) {
+                      allowedPapers.add(n.id);
+                  }
+              }
+          });
+          allowedNodes = new Set(allowedPapers);
+          rawEdges.forEach(e => {
+              if (allowedPapers.has(e.source)) allowedNodes.add(e.target);
+              if (allowedPapers.has(e.target)) allowedNodes.add(e.source);
+          });
+      }
+
+      const updatedNodes = rawNodes.map(node => {
+        let match = !q || node.title.toLowerCase().includes(q) || 
+                      (node.properties.definition && node.properties.definition.toLowerCase().includes(q)) ||
+                      (node.properties.motivation && node.properties.motivation.toLowerCase().includes(q));
+                      
+        if (isFocusModeEnabled && selectedNodeIds.length > 0) {
+            const isSelected = selectedNodeIds.includes(node.id);
+            const isNeighbor = rawEdges.some(e => ((e.source.id || e.source) === selectedNodeIds[0] && (e.target.id || e.target) === node.id) || ((e.target.id || e.target) === selectedNodeIds[0] && (e.source.id || e.source) === node.id));
+            if (!isSelected && !isNeighbor) match = false;
+        }
+        
+        let isHidden = false;
+        if (isTimeTravelEnabled && allowedNodes && !allowedNodes.has(node.id)) {
+            isHidden = true;
+        }
+        
+        if (isHysteresisEnabled && currentLodState === 'summary' && node.type !== "Paper") {
+            isHidden = true;
+        }
+
+        if (minConn > 0 && (degrees[node.id] || 0) < minConn) {
+            isHidden = true;
+        }
+
+        if (allowedByMaxNodes && !allowedByMaxNodes.has(node.id)) {
+            isHidden = true;
+        }
+        
+        let baseSize = node.size || 15;
+        let finalSize = isHubsModeEnabled ? baseSize + (degrees[node.id] || 0) * 1.5 : baseSize;
+        
+        return {
+          ...node,
+          x: node.fx,
+          y: node.fy,
+          z: 0,
+          size: finalSize,
+          hidden: isHidden,
+          color: {
+            background: match ? (isLight ? "#ffffff" : "rgba(9, 13, 22, 0.9)") : (isLight ? "rgba(0,0,0,0.05)" : "rgba(15, 23, 42, 0.1)"),
+            border: match ? (isLight ? darkenColor(node.color.border, 20) : node.color.border) : (isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.02)")
+          },
+          font: { 
+            color: match ? (isLight ? "#0f172a" : "#e2e8f0") : (isLight ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.08)"),
+            strokeWidth: match ? (isLight ? 2 : 0) : 0,
+            strokeColor: match ? (isLight ? "rgba(255,255,255,0.8)" : "transparent") : "transparent"
+          },
+          shadow: (match && (q || selectedNodeIds.length > 0)) ? { enabled: true, color: isLight ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.6)", size: 10, x: 2, y: 2 } : { enabled: false }
+        };
+      });
+
+      const visibleNodes = updatedNodes.filter(n => !n.hidden);
+      const hiddenNodeSet = new Set(updatedNodes.filter(n => n.hidden).map(n => n.id));
+      const visibleLinks = rawEdges.filter(e => {
+          if (isTimeTravelEnabled && allowedNodes) {
+              return allowedNodes.has(e.source.id || e.source) && allowedNodes.has(e.target.id || e.target);
+          } else {
+              return !hiddenNodeSet.has(e.source.id || e.source) && !hiddenNodeSet.has(e.target.id || e.target);
+          }
+      });
+      if (network) {
+          network.graphData({ nodes: visibleNodes, links: visibleLinks });
+      }
+      if (isRadarModeEnabled) renderMinimap(visibleNodes);
+    }
+
+    // Helper to darken hex colors for light mode contrast
+    function darkenColor(hex, percent) {
+      if (!hex || !hex.startsWith('#')) return hex;
+      let num = parseInt(hex.slice(1), 16), amt = Math.round(2.55 * percent),
+          r = (num >> 16) - amt, g = (num >> 8 & 0x00FF) - amt, b = (num & 0x0000FF) - amt;
+      return "#" + (0x1000000 + (r < 255 ? r < 1 ? 0 : r : 255) * 0x10000 + 
+                   (g < 255 ? g < 1 ? 0 : g : 255) * 0x100 + 
+                   (b < 255 ? b < 1 ? 0 : b : 255)).toString(16).slice(1);
+    }
+
+    function escapeHtml(text) {
+      if (!text) return "";
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+    // Auto-connect disabled to allow dataset selection
+    lucide.createIcons();
+
+    // Dynamically query server for active pipelines
+    fetch('/api/active_datasets')
+      .then(res => res.json())
+      .then(data => {
+          const select = document.getElementById('dataset-select');
+          if (data.datasets && data.datasets.length > 0) {
+              select.innerHTML = '';
+              data.datasets.forEach(d => {
+                  const opt = document.createElement('option');
+                  opt.value = d;
+                  let label = d.split('/').slice(-2).join('/');
+                  if (d.includes('nanobots')) label += ' 🟢 (ACTIVE PROCESS)';
+                  opt.textContent = label;
+                  select.appendChild(opt);
+              });
+          }
+      }).catch(err => console.log("Dataset fetch failed, using default:", err));
+  </script>
+</body>
+</html>
