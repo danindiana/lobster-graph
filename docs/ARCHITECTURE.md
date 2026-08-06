@@ -52,19 +52,24 @@ lost between windows.
 
 ### Model auto-selection
 
-Models are chosen per paper based on page count, defined in `TIER_BY_PAGES`:
+Models are chosen per paper based on page count, defined in `TIER_BY_PAGES`.
+Restricted to two active models for now (2026-08-06 — see
+`docs/sessions/2026-08-06_183747_model-tier-restriction-and-100pct-gpu-fit.md`):
 
 | Pages | Tier key | Default model |
 |-------|----------|---------------|
-| ≤ 8 | `fast` | `deepseek-r1:8b` (~5 GB) |
-| ≤ 18 | `single` | `deepseek-r1:14b` (~9 GB) |
-| ≤ 35 | `xl_quality` | `gemma4:31b-it-q4_K_M` (~18 GB) |
-| > 35 | `xl_quality` | same (chunking handles context) |
+| ≤ 35 | `xl_quality` | `gemma4:26b-a4b-it-q4_K_M` (~17 GB, fast/lighter) |
+| 36–200 | `xl_reason` | `nemotron3:33b` (~27 GB, strong chain-of-thought) |
+| > 200 | `xl_quality` | falls back to gemma4 — stays GPU-resident on huge books |
 
-The C++ section always uses `CODE_MODEL` (`qwen3-coder:30b`) regardless of
-page count, because code generation benefits from a code-specialised model.
+The C++ section always uses `CODE_MODEL`, which reuses `MODEL_TIERS["xl_quality"]`
+(gemma4) rather than a separate code-specialised model — keeps a single model
+resident, avoiding VRAM churn from loading a second model for the C++ stage.
 
 `--model` overrides all automatic selection for every section of every paper.
+`nemotron3:33b` (~27 GB) exceeds this workstation's combined VRAM (RTX 5080
+16 GB + RTX 3080 10 GB ≈ 26.5 GB), so it always runs with some CPU-offloaded
+layers — expected, and unrelated to the GPU fit-target tuning below.
 
 ### Processing stages
 
@@ -129,6 +134,23 @@ starting, which:
 5. Waits a further 15 s for the service to come back clean.
 
 This ensures maximum free VRAM before loading the pipeline's own models.
+
+### Ollama GPU fit-target tuning (host-level, not pipeline code)
+
+Independent of the pipeline's own provisioning above, Ollama's underlying
+`llama-server` (0.32.5+) runs its own auto-fit engine (`LLAMA_ARG_FIT`,
+default `on`) that decides per-tensor GPU vs. CPU placement — this overrides
+the classic `num_gpu` request option entirely when active. By default it
+reserves a small safety margin per device (`LLAMA_ARG_FIT_TARGET`) even when
+several GB of VRAM sit free, which can leave a model reported as e.g.
+`96% GPU` instead of `100% GPU`. This host is configured with
+`LLAMA_ARG_FIT_TARGET=0` in `/etc/systemd/system/ollama.service.d/override.conf`
+to remove that margin, since the reference dual-GPU setup (RTX 5080 + RTX 3080)
+has enough combined headroom for the two active models below their own
+VRAM footprint. This is a global Ollama setting, not something
+`paper_processor_dir.py` controls — see
+`docs/sessions/2026-08-06_183747_model-tier-restriction-and-100pct-gpu-fit.md`
+for the investigation and `docs/TROUBLESHOOTING.md` for the symptom/fix.
 
 ### Graceful shutdown
 

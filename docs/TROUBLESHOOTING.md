@@ -82,12 +82,37 @@ sudo systemctl daemon-reload && sudo systemctl restart ollama
 
 | Model | Min VRAM | Notes |
 |-------|----------|-------|
-| `deepseek-r1:8b` | ~6 GB | Fits on single RTX 3080 |
-| `deepseek-r1:14b` | ~10 GB | Fits on RTX 3080 10 GB with headroom |
-| `gemma4:31b-it-q4_K_M` | ~20 GB | Needs RTX 5080 or dual-GPU span |
-| `qwen3-coder:30b` | ~20 GB | Same as above |
+| `gemma4:26b-a4b-it-q4_K_M` | ~17 GB | Fits fully on the dual-GPU pool (RTX 5080 + RTX 3080) |
+| `nemotron3:33b` | ~27 GB | Exceeds combined VRAM (~26.5 GB) on this hardware — always runs with some CPU-offloaded layers |
 
-**Fix:** Use `--model deepseek-r1:14b` on single-GPU setups to stay within VRAM limits, or enable dual-GPU with `CUDA_VISIBLE_DEVICES=0,1` in the Ollama override.
+(Model roster restricted to these two as of 2026-08-06 — see
+`docs/sessions/2026-08-06_183747_model-tier-restriction-and-100pct-gpu-fit.md`.)
+
+**Fix:** Use `--model gemma4:26b-a4b-it-q4_K_M` to stay fully GPU-resident, or accept the partial CPU offload when forcing `nemotron3:33b` on hardware smaller than its ~27 GB footprint.
+
+---
+
+## Model stuck below 100% GPU despite free VRAM
+
+**Symptom:** `ollama ps` reports e.g. `4%/96% CPU/GPU` for a model even though `nvidia-smi` shows several GB free across both GPUs.
+
+**Cause:** Ollama's underlying `llama-server` (0.32.5+) uses its own auto-fit engine (`LLAMA_ARG_FIT`, default `on`) to place tensors, which **ignores the classic `num_gpu` request option** when active. It reserves a small per-device safety margin (`LLAMA_ARG_FIT_TARGET`) by default, so a model can be left partially host-mapped even with several GB of slack — confirmed by evicting/reloading with an explicit `num_gpu` override and seeing no change, then reading `journalctl -u ollama` for the fit engine's own "N MiB free vs. M MiB needed" log line.
+
+**Fix:** Set the fit-target margin to zero in the Ollama systemd override:
+```ini
+# /etc/systemd/system/ollama.service.d/override.conf
+[Service]
+Environment="LLAMA_ARG_FIT_TARGET=0"
+```
+```bash
+sudo cp .../override.conf .../override.conf.bak-$(date +%Y%m%d_%H%M%S)   # back up first
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+```
+Verify with `ollama ps` — `PROCESSOR` should read `100% GPU` for models that fit within combined VRAM.
+
+**Caveat:** This is a global setting affecting every model/consumer on the box, and the restart evicts whatever is currently loaded. Zeroing the margin removes headroom that would otherwise absorb KV-cache growth mid-generation — watch for OOM crashes on models already running close to VRAM capacity, and roll back via the backup file if so.
+
+**Reference:** Investigated and fixed in `docs/sessions/2026-08-06_183747_model-tier-restriction-and-100pct-gpu-fit.md`.
 
 ---
 
