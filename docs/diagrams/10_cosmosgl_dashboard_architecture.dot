@@ -1,0 +1,67 @@
+digraph cosmosgl_dashboard {
+  graph [bgcolor="black" rankdir=LR fontname="Courier New"
+         label="CosmosGL Dashboard — companion to webgl.html, same Neo4j"
+         labelloc=t fontcolor="#00FF41" fontsize=16 pad=0.5];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New"
+         fontsize=11 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=10 penwidth=2.0];
+
+  subgraph cluster_browser {
+    label="Browser (LAN)"; fontcolor="#FF00FF"; color="#FF00FF"; style=dashed;
+    user     [label="User"                                   color="#FF00FF" fontcolor="#FF00FF" shape=note];
+    cosmos   [label="cosmos_dashboard.html\n+ cosmos_bundle.js\n(@cosmos.gl/graph)" color="#FF00FF" fontcolor="#FF00FF" shape=box3d];
+  }
+
+  subgraph cluster_fw {
+    label="Firewall"; fontcolor="#FFFF00"; color="#FFFF00"; style=dashed;
+    ufw [label="UFW\n8686/tcp LAN-only\n(reused pre-existing rule)" color="#FFFF00" fontcolor="#FFFF00" shape=box];
+  }
+
+  subgraph cluster_server {
+    label="cosmos_server.py — 0.0.0.0:8686"; fontcolor="#00FFFF"; color="#00FFFF"; style=dashed;
+    graphapi [label="GET /api/graph\nall nodes + all edges"      color="#00FFFF" fontcolor="#00FFFF" shape=component];
+    nodeapi  [label="GET /api/node/<id>\nproperties(n)"           color="#00FFFF" fontcolor="#00FFFF" shape=component];
+    pdfapi   [label="GET /pdf/<id>\nstream by pdf_path"           color="#00FFFF" fontcolor="#00FFFF" shape=component];
+  }
+
+  subgraph cluster_neo4j {
+    label="paper-processor-neo4j (Docker)"; fontcolor="#7FFF00"; color="#7FFF00"; style=dashed;
+    bolt    [label="Bolt :7687\n(localhost-only)"      color="#7FFF00" fontcolor="#7FFF00" shape=doubleoctagon];
+    graphdb [label="Knowledge Graph\n~15.2K nodes / ~1.23M edges" color="#7FFF00" fontcolor="#7FFF00" shape=cylinder];
+  }
+
+  subgraph cluster_layout {
+    label="GPU Layout"; fontcolor="#FF6600"; color="#FF6600"; style=dashed;
+    layout [label="compute_layout.py\ncudf + cugraph\nForceAtlas2 (0.44s)" color="#FF6600" fontcolor="#FF6600" shape=box];
+    fxfy   [label="n.fx / n.fy\nwritten back to Neo4j" color="#FF6600" fontcolor="#FF6600" shape=note];
+  }
+
+  subgraph cluster_companion {
+    label="Companion Dashboard"; fontcolor="#DA70FF"; color="#DA70FF"; style=dashed;
+    webgl [label="webgl.html + server.py\nport 8585\n(3d-force-graph)" color="#DA70FF" fontcolor="#DA70FF" shape=box3d];
+  }
+
+  subgraph cluster_disk {
+    label="Filesystem"; fontcolor="#FF3333"; color="#FF3333"; style=dashed;
+    pdfs [label="Source PDFs\n(pdf_path — often\nmoved/archived post-run)" color="#FF3333" fontcolor="#FF3333" shape=folder];
+  }
+
+  user -> ufw       [color="#FF00FF" label="http://<lan-ip>:8686"];
+  ufw -> cosmos     [color="#FFFF00" label="allow 192.168.1.0/24"];
+  cosmos -> graphapi [color="#00FFFF" label="fetch on load"];
+  cosmos -> nodeapi  [color="#00FFFF" label="on double-click"];
+  cosmos -> pdfapi   [color="#00FFFF" label="Paper: new tab"];
+
+  graphapi -> bolt [color="#7FFF00" label="Cypher"];
+  nodeapi  -> bolt [color="#7FFF00" label="Cypher"];
+  pdfapi   -> bolt [color="#7FFF00" label="lookup pdf_path"];
+  bolt -> graphdb  [color="#7FFF00"];
+
+  layout -> bolt  [color="#FF6600" label="MATCH edges,\nrun ForceAtlas2"];
+  layout -> fxfy  [color="#FF6600"];
+  fxfy -> graphdb [color="#FF6600" label="SET n.fx, n.fy"];
+
+  webgl -> bolt [color="#DA70FF" label="same live graph" style=dashed];
+
+  pdfapi -> pdfs [color="#FF3333" label="stream if exists,\notherwise 404 + reason"];
+}

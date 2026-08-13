@@ -1,0 +1,53 @@
+digraph double_click_flow {
+  graph [bgcolor="black" rankdir=TB fontname="Courier New"
+         label="CosmosGL Dashboard — double-click a node to open it / see more"
+         labelloc=t fontcolor="#00FF41" fontsize=16 pad=0.5];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New"
+         fontsize=11 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=10 penwidth=2.0];
+
+  subgraph cluster_input {
+    label="Point Click Detection"; fontcolor="#FF00FF"; color="#FF00FF"; style=dashed;
+    click1 [label="onPointClick(index)\n(cosmos.gl has no\nnative dblclick event)" color="#FF00FF" fontcolor="#FF00FF" shape=box];
+    timer  [label="same index again\nwithin 400ms?"       color="#FF00FF" fontcolor="#FF00FF" shape=diamond];
+  }
+
+  subgraph cluster_branch {
+    label="Node Type Branch"; fontcolor="#FFFF00"; color="#FFFF00"; style=dashed;
+    ispaper [label="type === \"Paper\" ?" color="#FFFF00" fontcolor="#FFFF00" shape=diamond];
+  }
+
+  subgraph cluster_pdf {
+    label="Paper: attempt PDF open"; fontcolor="#FF6600"; color="#FF6600"; style=dashed;
+    winopen [label="window.open(/pdf/<id>)\ncalled BEFORE any await\n(preserves user-gesture)" color="#FF6600" fontcolor="#FF6600" shape=box];
+    lookup  [label="server: MATCH (p:Paper)\nWHERE id(p)=$id\nRETURN p.pdf_path"        color="#FF6600" fontcolor="#FF6600" shape=component];
+    exists  [label="os.path.isfile(pdf_path)\nand ends with .pdf ?"                     color="#FF6600" fontcolor="#FF6600" shape=diamond];
+    stream  [label="200\nstream application/pdf"  color="#00FF41" fontcolor="#00FF41" shape=box];
+    missing [label="404\nplain-text explanation\n(\"moved / archived\")" color="#FF3333" fontcolor="#FF3333" shape=box];
+  }
+
+  subgraph cluster_modal {
+    label="Every node type: detail modal"; fontcolor="#00FFFF"; color="#00FFFF"; style=dashed;
+    fetchnode [label="GET /api/node/<id>"                 color="#00FFFF" fontcolor="#00FFFF" shape=component];
+    props     [label="MATCH (n) WHERE id(n)=$id\nRETURN properties(n)" color="#00FFFF" fontcolor="#00FFFF" shape=cylinder];
+    render    [label="renderNodeDetail(type, props)\ntype-specific fields:\nmotivation/definition/\nstatement/pseudocode/code" color="#00FFFF" fontcolor="#00FFFF" shape=box3d];
+  }
+
+  singleclick [label="single click:\nno action\n(just hover tooltip)" color="#7FFF00" fontcolor="#7FFF00" shape=note];
+
+  click1 -> timer;
+  timer -> ispaper [label="yes (double-click)" color="#FF00FF" fontcolor="#FF00FF"];
+  timer -> singleclick [label="no" color="#7FFF00" fontcolor="#7FFF00" style=dashed];
+
+  ispaper -> winopen [label="yes" color="#FFFF00" fontcolor="#FFFF00"];
+  ispaper -> fetchnode [label="no" color="#FFFF00" fontcolor="#FFFF00"];
+  winopen -> fetchnode [color="#FF6600" label="also fetches\ndetail modal"];
+
+  winopen -> lookup [color="#FF6600"];
+  lookup -> exists [color="#FF6600"];
+  exists -> stream  [label="yes" color="#00FF41" fontcolor="#00FF41"];
+  exists -> missing [label="no"  color="#FF3333" fontcolor="#FF3333"];
+
+  fetchnode -> props [color="#00FFFF"];
+  props -> render [color="#00FFFF"];
+}

@@ -68,6 +68,13 @@ To enforce physical VRAM isolation, twin Ollama daemons run on separate ports, r
 In standard scheduling, switching between large models triggers high SSD read rates and 30–60 second loading penalties. Concurrent pinning reduces model loading times to **0 seconds** after startup.
 ![io disk residency](docs/diagrams/07_io_disk_residency.png)
 
+### 7. CosmosGL Dashboard Architecture
+The companion dashboard (`neo4j_viz/cosmos_*`, port 8686) is a thin `cosmos_server.py` HTTP layer over the same live `paper-processor-neo4j` graph the 8585 `webgl.html` dashboard reads — both consume GPU-precomputed `fx`/`fy` positions from `compute_layout.py` rather than running physics client-side.
+![CosmosGL dashboard architecture](docs/diagrams/10_cosmosgl_dashboard_architecture.png)
+
+### 8. Double-Click a Node: Detail Modal / Source PDF
+Since `@cosmos.gl/graph` has no native double-click event, the frontend detects two clicks on the same point within 400ms. Every node type opens a detail modal built from its Neo4j properties; a `Paper` node also attempts to open its source PDF, looked up server-side by node id — many have since been moved or archived post-processing, so a missing file 404s with an explanation instead of failing silently.
+![double-click node detail flow](docs/diagrams/11_node_double_click_flow.png)
 
 ---
 
