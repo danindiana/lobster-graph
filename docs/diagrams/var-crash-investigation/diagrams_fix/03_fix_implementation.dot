@@ -1,0 +1,34 @@
+digraph FixImplementation {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  rankdir=TB;
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  const [label="INCOMPATIBLE_MODELS =\nset(MODEL_TIERS.values())\n= {gemma4:26b, nemotron3:33b}", fillcolor="#0d0d0d", color="#00ffff", fontcolor="#00ffff"];
+  func [label="_ensure_model_exclusive(model):\nfor loaded in _ollama_get_loaded():\n  if loaded != model and\n     loaded in INCOMPATIBLE_MODELS:\n    print \"🔁 Evicting …\"\n    _ollama_evict(loaded)", shape=box3d, fillcolor="#1a1a2e"];
+  const -> func [label="checked against"];
+
+  reused1 [label="_ollama_get_loaded()\n(pre-existing helper,\nGET /api/ps)", shape=component, fillcolor="#0d0d0d", color="#ffcc00", fontcolor="#ffcc00"];
+  reused2 [label="_ollama_evict()\n(pre-existing helper,\nPOST /api/generate\nkeep_alive=0)", shape=component, fillcolor="#0d0d0d", color="#ffcc00", fontcolor="#ffcc00"];
+  reused1 -> func [label="reused, not\nreinvented"];
+  reused2 -> func [label="reused, not\nreinvented"];
+
+  hook [label="LLMBackend._call_ollama(\n  self, prompt, model, ctx)\n  _ensure_model_exclusive(model)  ← NEW\n  ...POST /api/generate...", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00", penwidth=3];
+  func -> hook [label="called at top of"];
+
+  subgraph cluster_callers {
+    label="Every call site funnels through this ONE choke point";
+    fontcolor="#ff6600"; color="#ff6600"; fontname="Courier";
+    summary [label="Summary section"];
+    prose [label="Prose / map-reduce\nchunks"];
+    cpp [label="C++ code section"];
+  }
+  summary -> hook [label="LLMBackend.call()"];
+  prose -> hook [label="LLMBackend.call()"];
+  cpp -> hook [label="LLMBackend.call()"];
+
+  note [label="One hook, zero call-site\nchanges needed. Eviction\nnow happens BEFORE the\nfirst cudaMalloc attempt,\nnot after it fails.", shape=note, fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff"];
+  hook -> note [style=dashed, color="#00ffff"];
+}

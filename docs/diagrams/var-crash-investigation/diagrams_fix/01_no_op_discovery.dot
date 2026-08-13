@@ -1,0 +1,31 @@
+digraph NoOpDiscovery {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  assumption [label="Developer assumption\n(2026-08-06 comment):\nnemotron3:33b has\n~52 blocks", fillcolor="#0d0d0d", color="#ff6600", fontcolor="#ff6600"];
+  cap [label="MODEL_GPU_LAYERS =\n{\"nemotron3:33b\": 32}\nintent: ~60% GPU,\nrelieve VRAM pressure", fillcolor="#1a1a2e"];
+  reality [label="REALITY (journalctl +\nollama show):\nnemotron_h_omni arch —\nonly 31 total layers\n(Mamba + attention hybrid)", fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00", penwidth=3];
+  noop [label="32 > 31 → cap NEVER\nengages. Every load:\n\"offloaded 31/31\nlayers to GPU\"", fillcolor="#0d0d0d", color="#ff0000", fontcolor="#ff0000", penwidth=3];
+
+  assumption -> cap [label="written based on"];
+  cap -> reality [label="checked against\nactual model"];
+  reality -> noop [label="32 ≥ 31, so"];
+
+  subgraph cluster_footprint {
+    label="Actual GPU footprint every load (2026-08-12 journal)";
+    fontcolor="#00ffff"; color="#00ffff"; fontname="Courier";
+    lm [label="LM weights (GPU)\n~15.6G\n(10157.66 + 5843.83 MiB)"];
+    proj [label="Vision projector\n~1.5G\n(unused — pipeline is\ntext-only, but still\nattempted on GPU)"];
+    ovh [label="KV + recurrent-state\n+ compute buffers\n~0.7G"];
+    total [label="TOTAL ≈ 17.8G\n(vs. intended ~16G / 60%)", fillcolor="#0d0d0d", color="#ff0000", fontcolor="#ff0000", penwidth=3];
+    lm -> total; proj -> total; ovh -> total;
+  }
+  noop -> lm [style=dashed, color="#ffff00"];
+
+  conclusion [label="CONCLUSION:\nthe Aug-6 \"fix\" attempt\nhas been inert the entire\ntime. It didn't reduce\nnemotron3's real GPU need\nat all — explains why OOM\nbursts continued unabated\nAug 6→12 despite the cap.",
+              shape=note, fillcolor="#1a1a2e", color="#00ff00", fontcolor="#00ff00"];
+  total -> conclusion [style=dashed, color="#00ff00"];
+}

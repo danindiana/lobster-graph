@@ -1,0 +1,35 @@
+digraph FixDecision {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  problem [label="gemma4 (17.9G) +\nnemotron3 (~17.8G, actually\nuncapped) can't coexist\nin ~26.5G VRAM", shape=hexagon, fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00", penwidth=3];
+
+  subgraph cluster_a {
+    label="OPTION A: Lower num_gpu below 31";
+    fontcolor="#00ffff"; color="#00ffff"; fontname="Courier";
+    a1 [label="Set num_gpu ≈ 10-12\n(real cap this time)"];
+    a2 [label="+ Both models stay warm\nsimultaneously, no reloads"];
+    a3 [label="− nemotron3 drops from\n~100% GPU to ~32% GPU\n/ 68% CPU — noticeably\nslower reasoning-tier\ninference", fillcolor="#0d0d0d", color="#ff6600", fontcolor="#ff6600"];
+    a1 -> a2; a1 -> a3;
+  }
+
+  subgraph cluster_b {
+    label="OPTION B: Proactive eviction (CHOSEN)";
+    fontcolor="#00ff00"; color="#00ff00"; fontname="Courier";
+    b1 [label="Evict the OTHER tier's\nmodel right before a\nswitch, using the existing\n_ollama_evict() helper"];
+    b2 [label="+ Both models run at\nFULL GPU speed\nwhenever active"];
+    b3 [label="− Pays a clean reload on\nevery tier switch (same\ncost as before, just no\nlonger a failed-probe\nburst / core dump)", fillcolor="#0d0d0d", color="#ffcc00", fontcolor="#ffcc00"];
+    b1 -> b2; b1 -> b3;
+  }
+
+  problem -> a1 [label="considered"];
+  problem -> b1 [label="considered"];
+
+  chosen [label="USER CHOICE: Option B\n— keep full inference\nspeed for both tiers;\nreload latency on switch\nis acceptable, silent\nOOM noise/thrashing is not",
+          fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00", penwidth=3, shape=note];
+  b3 -> chosen [style=dashed, color="#00ff00"];
+  a3 -> chosen [style=dashed, color="#666666", label="not chosen", fontcolor="#666666"];
+}

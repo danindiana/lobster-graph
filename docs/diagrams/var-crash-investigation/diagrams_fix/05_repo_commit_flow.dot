@@ -1,0 +1,36 @@
+digraph RepoCommitFlow {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  rankdir=LR;
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  gh [label="gh CLI\nauth: danindiana\n(scopes: repo, workflow)", shape=cylinder, fillcolor="#0d0d0d", color="#00ffff", fontcolor="#00ffff"];
+
+  subgraph cluster_repo1 {
+    label="Repo 1: claude_creations";
+    fontcolor="#00ff9f"; color="#00ff9f"; fontname="Courier";
+    scope1 [label="Scoped stage:\nONLY 2026-08-12_...\nvar-crash-investigation/\n(28 files)"];
+    dirty1 [label="Dozens of unrelated\nmodified/untracked files\nfrom other sessions —\nleft untouched", fillcolor="#0d0d0d", color="#666666", fontcolor="#666666", style="filled,dashed"];
+    commit1 [label="commit 1fd84d9\n\"docs: Add /var/crash +\nGPU-OOM investigation …\""];
+    push1 [label="push → origin/master\nworlock-session-archive\n(PRIVATE)", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00", penwidth=3];
+    scope1 -> commit1; dirty1 -> commit1 [style=dashed, color="#666666", label="excluded", fontcolor="#666666"]; commit1 -> push1;
+  }
+
+  subgraph cluster_repo2 {
+    label="Repo 2: paper_processor";
+    fontcolor="#ffcc00"; color="#ffcc00"; fontname="Courier";
+    scope2 [label="Stage:\npaper_processor_dir.py\n(1 file, only dirty file\nin this repo)"];
+    commit2 [label="commit 0ab2397\n\"fix: proactively evict\nopposing tier model …\""];
+    push2 [label="push → origin/main\nlobster-graph\n(PUBLIC — left as-is\nper user's choice)", fillcolor="#0d0d0d", color="#ffcc00", fontcolor="#ffcc00", penwidth=3];
+    scope2 -> commit2 -> push2;
+  }
+
+  gh -> scope1 [label="authenticates"];
+  gh -> scope2 [label="authenticates"];
+
+  note [label="Two repos, two visibility\nlevels, deliberately NOT\nmerged into one — the\ninvestigation write-up\nstays private, the actual\ncode fix stays in its\nreal project history.",
+        shape=note, fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff"];
+  push1 -> note [style=invis]; push2 -> note [style=invis];
+}

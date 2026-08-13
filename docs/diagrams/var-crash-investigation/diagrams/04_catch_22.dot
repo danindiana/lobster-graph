@@ -1,0 +1,24 @@
+digraph Catch22 {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2.5, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  a [label="Model (27G) does not\ncleanly fit in 26.5G\ncombined VRAM"];
+  b [label="Loader must SEARCH\nfor a working\nGPU/CPU layer split"];
+  c [label="Try a candidate split:\nattempt cudaMalloc\nfor that buffer size", fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00"];
+  d [label="Too much on GPU?\ncudaMalloc FAILS\n(logged as \"out of memory\")", fillcolor="#0d0d0d", color="#ff0000", fontcolor="#ff0000"];
+  e [label="Ollama evicts all models\n& retries once\n(sched.go:672)"];
+  f [label="Split now fits\n(currently: 46% CPU /\n54% GPU) — SUCCESS", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00", penwidth=3];
+
+  a -> b -> c -> d;
+  d -> e [label="probe failed"];
+  e -> c [label="retry with\nadjusted split"];
+  d -> f [label="probe fits", style=dashed];
+  c -> f [label="or fits\nfirst try", style=dashed];
+
+  paradox [label="THE CATCH-22:\nyou cannot know which split fits\nwithout first trying (and failing)\nthe ones that don't.\nEvery cold load of this model\nreplays ~3 failed probes\nbefore success — by design,\nnot by bug.",
+           shape=note, fillcolor="#1a1a2e", color="#ff0090", fontcolor="#ff0090", penwidth=2];
+  f -> paradox [style=dotted, dir=none, color="#ff0090"];
+}

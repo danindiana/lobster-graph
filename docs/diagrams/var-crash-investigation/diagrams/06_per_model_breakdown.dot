@@ -1,0 +1,64 @@
+digraph PerModelBreakdown {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  labelloc="t";
+  label="OOM events by model — every model loaded during Aug 6-12, journalctl -u ollama\n7 models loaded; only 1 ever produced a cudaMalloc OOM";
+
+  chart [shape=plaintext, fontname="Courier", label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6" BGCOLOR="#0d0d0d" COLOR="#00ff9f">
+      <TR>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Model</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Size</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">OOM count</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Bar (scale: 300px = 494)</FONT></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#ff0000">nemotron3:33b</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">27G</FONT></TD>
+        <TD><FONT COLOR="#ff0000">494</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0000" WIDTH="300" HEIGHT="14"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">gemma4:26b-a4b</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">17G</FONT></TD>
+        <TD><FONT COLOR="#00ff00">0</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#00ff00" WIDTH="3" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="297"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">qwen3:14b</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">9.3G</FONT></TD>
+        <TD><FONT COLOR="#00ff00">0</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#00ff00" WIDTH="3" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="297"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">nemotron-terminal-14b</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">9.0G</FONT></TD>
+        <TD><FONT COLOR="#00ff00">0</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#00ff00" WIDTH="3" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="297"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">deepseek-r1:14b</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">9.0G</FONT></TD>
+        <TD><FONT COLOR="#00ff00">0</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#00ff00" WIDTH="3" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="297"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">nemotron-3-nano:4b-bf16</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">8.0G</FONT></TD>
+        <TD><FONT COLOR="#00ff00">0</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#00ff00" WIDTH="3" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="297"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">deepseek-r1:8b</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">5.2G</FONT></TD>
+        <TD><FONT COLOR="#00ff00">0</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#00ff00" WIDTH="3" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="297"></TD></TR></TABLE></TD>
+      </TR>
+    </TABLE>
+  >];
+
+  note [shape=note, fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff", fontname="Courier",
+        label="Model size alone doesn't predict OOM —\ngemma4:26b (17G) never failed once.\nWhat's different about nemotron3:33b:\nit's the only model whose weights (27G)\nexceed combined VRAM (26.5G) outright,\nforcing every load through the\nCPU/GPU split-search in diagram 04."];
+  chart -> note [style=invis];
+}

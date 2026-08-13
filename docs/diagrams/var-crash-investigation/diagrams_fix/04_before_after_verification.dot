@@ -1,0 +1,34 @@
+digraph BeforeAfterVerification {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  labelloc="t";
+  label="Independently verified via journalctl -u ollama — before vs. after the proactive-eviction fix";
+
+  chart [shape=plaintext, fontname="Courier", label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="8" BGCOLOR="#0d0d0d" COLOR="#00ff9f">
+      <TR>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Period</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Window</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Model loads</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">cudaMalloc OOM events</FONT></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#ff0000">BEFORE</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">Aug 6 19:41 → Aug 12 14:11<BR/>(~6 days)</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">160 episodes<BR/>(3-probe bursts)</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0000" WIDTH="300" HEIGHT="18"></TD><TD><FONT COLOR="#ff0000"> 494</FONT></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff00">AFTER</FONT></TD>
+        <TD><FONT COLOR="#00ff9f">Aug 12 15:27 → 19:23<BR/>(~4 hours, post-restart)</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">26 clean loads,<BR/>alternating tiers</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#00ff00" WIDTH="2" HEIGHT="18"></TD><TD><FONT COLOR="#00ff00"> 0</FONT></TD></TR></TABLE></TD>
+      </TR>
+    </TABLE>
+  >];
+
+  note [shape=note, fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff", fontname="Courier",
+        label="Same workload shape both periods: pipeline\nalternating gemma4:26b ↔ nemotron3:33b by\npaper page-count tier. Only variable changed:\n_ensure_model_exclusive() now evicts the\noutgoing tier's model BEFORE the incoming\nmodel's first allocation attempt, instead of\nletting Ollama discover the conflict via a\nfailed cudaMalloc + evict-all-and-retry."];
+  chart -> note [style=invis];
+}

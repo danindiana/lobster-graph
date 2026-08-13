@@ -1,0 +1,28 @@
+digraph AdversarialTesting {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  hub [label="\"Verify, Don't Trust\"\nHow to actively test the\nrevised hypothesis rather\nthan just believe the logs", shape=hexagon, fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00", penwidth=3];
+
+  t1 [label="TEST 1: Isolated cold load\nUnload everything, load\nONLY nemotron3:33b, watch\nfor the same 3-probe burst."];
+  t1r1 [label="If OOM burst still occurs\n→ CONFIRMS single-model\nboundary-fit theory", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00"];
+  t1r2 [label="If OOM burst vanishes\n→ FALSIFIES it; something\nelse was consuming VRAM", fillcolor="#0d0d0d", color="#ff0000", fontcolor="#ff0000"];
+
+  t2 [label="TEST 2: High-frequency\nnvidia-smi sampling\nPoll free VRAM every\n~100ms during a triggered\ncold load to catch the\nprobe sequence directly."];
+  t2r [label="Expected: 2-3 brief spikes\nof attempted allocation\nthat exceed free VRAM,\nmatching the ~1.5G / ~7.5-8.1G\nbuffer sizes seen in logs", fillcolor="#0d0d0d", color="#00ffff", fontcolor="#00ffff"];
+
+  t3 [label="TEST 3: Temporary\nOLLAMA_MAX_LOADED_MODELS=1\n(throwaway test, reverted\nafter observation window)"];
+  t3r1 [label="If OOMs persist\n→ CONFIRMS co-residency\nwas NOT the driver", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00"];
+  t3r2 [label="If OOMs stop\n→ co-residency WAS a\ncontributing factor after\nall — hypothesis needs\nfurther revision", fillcolor="#0d0d0d", color="#ff0000", fontcolor="#ff0000"];
+
+  hub -> t1; hub -> t2; hub -> t3;
+  t1 -> t1r1 [style=dashed]; t1 -> t1r2 [style=dashed];
+  t2 -> t2r [style=dashed];
+  t3 -> t3r1 [style=dashed]; t3 -> t3r2 [style=dashed];
+
+  caveat [label="None of these have been run yet.\nAll three are cheap, reversible,\nand should be done BEFORE\ncommitting to any fix in\ndiagram 08.", shape=note, fillcolor="#1a1a2e", color="#ff6600", fontcolor="#ff6600"];
+  hub -> caveat [style=invis];
+}

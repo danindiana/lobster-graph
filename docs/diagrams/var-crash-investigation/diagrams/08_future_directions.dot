@@ -1,0 +1,20 @@
+digraph FutureDirections {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  node [shape=box, style="filled,dashed", fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  hub [label="Open Questions / Next Steps\n(none applied — all pending\na separate user decision)", shape=doubleoctagon, style=filled, fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00", penwidth=3];
+
+  q1 [label="1. Identify the actual\nOpenWebUI caller pattern\nfor nemotron3:33b\n(who/what is prompting it\nevery 20-90 min?)"];
+  q2 [label="2. Test a smaller quant\nor explicitly pinned\nnum_gpu_layers for\nnemotron3:33b — does the\nboundary-fit issue disappear?"];
+  q3 [label="3. Consider raising\nOLLAMA_KEEP_ALIVE or\npinning a stable split\nto cut reload frequency\n(fewer cold-load probes)"];
+  q4 [label="4. Only THEN revisit\nOLLAMA_MAX_LOADED_MODELS —\nnow lower priority since\nco-residency isn't the\nactual driver of these events"];
+
+  hub -> q1 -> q2 -> q3 -> q4 [style=dashed];
+
+  order [label="Suggested priority order:\nq1 (diagnose) → q2 (fix the\nmodel-specific fit issue) →\nq3 (reduce reload frequency) →\nq4 (lowest priority, was the\noriginal but now-deprioritized fix)",
+         shape=note, fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff"];
+  q4 -> order [style=invis];
+}

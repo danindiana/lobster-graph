@@ -1,0 +1,28 @@
+digraph DiagnosticMethodology {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  rankdir=LR;
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  s1 [label="1. journalctl -u ollama\nextract all\n\"cudaMalloc failed:\nout of memory\" lines"];
+  s2 [label="2. Regex-extract\nmodel= blob hashes\nfrom adjacent\nLoad-failed lines"];
+  s3 [label="3. Parse manifest JSON\n(/usr/share/ollama/\n.ollama/models/manifests)\nfor each of 24 models"];
+  s4 [label="4. Build hash→name map\n(digest of the .model\nlayer per manifest)"];
+  s5 [label="5. Correlate every\nOOM event's hash\nagainst the map"];
+  s6 [label="6. Cluster events into\nepisodes (>10min gap\n= new episode)\n→ 160 episodes"];
+  s7 [label="7. Elimination check:\ncrontab (both users),\nsystemctl list-timers,\nzsh history grep"];
+  s8 [label="8. Conclusion:\n100% attribution to\nnemotron3:33b;\nno scheduled trigger found",
+      fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00", penwidth=3];
+
+  s1 -> s2 -> s3 -> s4 -> s5 -> s6 -> s7 -> s8;
+
+  finding1 [label="result: 326/326\nmodel-tagged OOM lines\n= same single hash", shape=note, fillcolor="#1a1a2e", color="#ffcc00", fontcolor="#ffcc00"];
+  finding2 [label="result: 158 evict-and-\nretry cycles, ~160\nepisodes match", shape=note, fillcolor="#1a1a2e", color="#ffcc00", fontcolor="#ffcc00"];
+  finding3 [label="result: no cron/timer/\nhistory hit — usage\nis organic/interactive", shape=note, fillcolor="#1a1a2e", color="#ffcc00", fontcolor="#ffcc00"];
+
+  s5 -> finding1 [style=dashed, color="#ffcc00"];
+  s6 -> finding2 [style=dashed, color="#ffcc00"];
+  s7 -> finding3 [style=dashed, color="#ffcc00"];
+}

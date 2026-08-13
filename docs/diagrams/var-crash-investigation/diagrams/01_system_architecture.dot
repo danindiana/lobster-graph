@@ -1,0 +1,54 @@
+digraph SystemArchitecture {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  rankdir=TB;
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=11];
+
+  subgraph cluster_hw {
+    label="GPU Hardware (worlock)";
+    fontcolor="#00ffff"; color="#00ffff"; fontname="Courier";
+    gpu0 [label="RTX 5080\n(CUDA0)\n16303 MiB total"];
+    gpu1 [label="RTX 3080\n(CUDA1)\n10240 MiB total"];
+    vram [label="Combined VRAM Pool\n~26.5 GB", fillcolor="#0d0d0d", color="#00ffff", fontcolor="#00ffff", shape=cylinder];
+    gpu0 -> vram; gpu1 -> vram;
+  }
+
+  subgraph cluster_svc {
+    label="ollama.service (override.conf)";
+    fontcolor="#00ff9f"; color="#00ff9f"; fontname="Courier";
+    cfg [label="OLLAMA_MAX_LOADED_MODELS=2\nOLLAMA_SCHED_SPREAD=1\nOLLAMA_KEEP_ALIVE=60m\nOLLAMA_MAIN_GPU=0", shape=note];
+    sched [label="Ollama Scheduler\n(sched.go)"];
+    llama [label="llama-server\n(GPU runner subprocess)"];
+    cfg -> sched -> llama;
+  }
+
+  subgraph cluster_catalog {
+    label="Local Model Catalog (24 models, 5.2G–29G)";
+    fontcolor="#ffcc00"; color="#ffcc00"; fontname="Courier";
+    others [label="6 other loaded models\nqwen3:14b, deepseek-r1:8b/14b,\ngemma4:26b, nemotron-3-nano:4b,\nnemotron-terminal-14b\n(0 OOM events)", fillcolor="#1a1a2e"];
+    nemotron [label="nemotron3:33b\n27G weights\n— sits PAST the\nfit boundary —", fillcolor="#0d0d0d", color="#ff0000", fontcolor="#ff0000", penwidth=3];
+  }
+
+  entry [label="OpenWebUI\n:3000 (likely request path\n— no CLI history found)", fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff"];
+  api [label="Ollama API\n127.0.0.1:11434"];
+
+  entry -> api [label="chat request"];
+  api -> sched;
+  others -> llama [label="loads cleanly"];
+  nemotron -> llama [label="27G vs 26.5G\ncombined VRAM", color="#ff0000", fontcolor="#ff0000", penwidth=3];
+  llama -> vram [label="attempts allocation\n(probes GPU/CPU split)"];
+
+  subgraph cluster_coredump {
+    label="Core-dump routing (Part A — already fixed)";
+    fontcolor="#ff6600"; color="#ff6600"; fontname="Courier";
+    before [label="BEFORE:\nkernel.core_pattern=\n/var/crash/core.%e.%p.%t\n(raw, uncapped)", fillcolor="#0d0d0d", color="#ff0000", fontcolor="#ff0000"];
+    after [label="AFTER:\nsystemd-coredump\nProcessSizeMax=2G\nCompress=yes, MaxUse=5G", fillcolor="#0d0d0d", color="#00ff9f", fontcolor="#00ff9f"];
+    before -> after [label="fixed 2026-08-12", color="#00ff9f", fontcolor="#00ff9f"];
+  }
+
+  llama -> before [style=dotted, label="crash\n(historical)", color="#ff6600", fontcolor="#ff6600"];
+
+  legend [label="Scope of this diagram:\nhardware + service config +\nrequest path + coredump routing.\nSee 02–09 for the failure\nmechanism itself.", shape=note, fillcolor="#1a1a2e", color="#00ff9f", fontcolor="#00ff9f"];
+}

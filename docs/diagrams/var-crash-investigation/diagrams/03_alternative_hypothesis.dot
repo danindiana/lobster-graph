@@ -1,0 +1,38 @@
+digraph AlternativeHypothesis {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  rankdir=TB;
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  subgraph cluster_original {
+    label="ORIGINAL HYPOTHESIS (first pass)";
+    fontcolor="#ff6600"; color="#ff6600"; fontname="Courier";
+    o1 [label="Evidence used:\none log snippet\n(Aug 11 21:19-21:55)"];
+    o2 [label="OLLAMA_MAX_LOADED_MODELS=2\n+ SCHED_SPREAD=1 present"];
+    o3 [label="Catalog has many\n9-29G models"];
+    oconclusion [label="\"2-model co-residency\nis oversubscribing\nVRAM in general\"", fillcolor="#0d0d0d", color="#ff6600", fontcolor="#ff6600", penwidth=3];
+    o1 -> oconclusion; o2 -> oconclusion; o3 -> oconclusion;
+  }
+
+  pivot [label="FALSIFYING EVIDENCE\n(this deep dive):\n494/494 OOM events =\nONE model (nemotron3:33b).\n6 other models loaded\nin the same window,\n0 OOM events between them.",
+         shape=hexagon, fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00", penwidth=3];
+
+  subgraph cluster_revised {
+    label="REVISED FINDING (deep dive)";
+    fontcolor="#00ff00"; color="#00ff00"; fontname="Courier";
+    r1 [label="nemotron3:33b loaded\nALONE still needs\n46%/54% CPU/GPU split"];
+    r2 [label="Model itself (27G) sits\npast the ~26.5G combined\nVRAM fit boundary"];
+    r3 [label="Loaded/reloaded ~160x\nin 6 days due to\nKEEP_ALIVE=60m eviction"];
+    rconclusion [label="\"Single oversized model's\nauto-fit probing,\nrepeated very often\"", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00", penwidth=3];
+    r1 -> rconclusion; r2 -> rconclusion; r3 -> rconclusion;
+  }
+
+  oconclusion -> pivot [label="tested against\nfull data", color="#ffff00", fontcolor="#ffff00"];
+  pivot -> rconclusion [label="hypothesis\nrevised", color="#ffff00", fontcolor="#ffff00"];
+
+  note [label="Co-residency (OLLAMA_MAX_LOADED_MODELS=2)\nmay still be a contributing factor for OTHER\nmodel pairs in the future — it just isn't\nwhat's producing these 494 events.", shape=note,
+        fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff"];
+  rconclusion -> note [style=dashed, color="#00ffff"];
+}

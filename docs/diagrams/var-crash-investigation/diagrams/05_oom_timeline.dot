@@ -1,0 +1,56 @@
+digraph OomTimeline {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  labelloc="t";
+  label="OOM events per day — journalctl -u ollama, Aug 6-12 2026 (160 load episodes, 494 cudaMalloc failures)\nnemotron3:33b is the source of 100% of these events";
+
+  chart [shape=plaintext, fontname="Courier", label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6" BGCOLOR="#0d0d0d" COLOR="#00ff9f">
+      <TR>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Day</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Events</FONT></TD>
+        <TD BGCOLOR="#1a1a2e"><FONT COLOR="#00ff9f">Bar (scale: 300px = 147 events)</FONT></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">Aug 06</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">33</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0090" WIDTH="67" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="233"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">Aug 07</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">114</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0090" WIDTH="233" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="67"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">Aug 08</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">102</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0090" WIDTH="208" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="92"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">Aug 09</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">147</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0000" WIDTH="300" HEIGHT="14"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">Aug 10</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">51</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0090" WIDTH="104" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="196"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">Aug 11</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">20</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0090" WIDTH="41" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="259"></TD></TR></TABLE></TD>
+      </TR>
+      <TR>
+        <TD><FONT COLOR="#00ff9f">Aug 12*</FONT></TD>
+        <TD><FONT COLOR="#ffcc00">27</FONT></TD>
+        <TD BGCOLOR="#0d0d0d"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0"><TR><TD BGCOLOR="#ff0090" WIDTH="55" HEIGHT="14"></TD><TD BGCOLOR="#0d0d0d" WIDTH="245"></TD></TR></TABLE></TD>
+      </TR>
+    </TABLE>
+  >];
+
+  note [shape=note, fillcolor="#1a1a2e", color="#00ffff", fontcolor="#00ffff", fontname="Courier",
+        label="* Aug 12 partial day (through 14:11).\nEpisode shape is near-constant:\nbursts of ~3 cudaMalloc failures\nwithin 1-2 seconds, gaps between\nepisodes range 10min-31h — matches\norganic interactive use + 60min\nKEEP_ALIVE eviction, not a fixed\ncron/timer (checked & ruled out)."];
+  chart -> note [style=invis];
+}

@@ -1,0 +1,17 @@
+digraph LessonsLearned {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  node [shape=note, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=1.5, style=dashed, arrowhead=none, fontname="Courier"];
+
+  hub [shape=doubleoctagon, label="Lessons Learned", fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00", penwidth=3];
+
+  l1 [label="A single log snippet can produce\na plausible-SOUNDING root cause\nthat is still wrong (or incomplete).\nThe first pass's \"2-model\nco-residency\" theory fit the\nconfig and the symptoms, but\nwasn't checked against full data."];
+  l2 [label="Count and correlate before fixing.\n494 events vs. 7 candidate models is\ncheap to check (one grep + a JSON\nmap) and turned a vague \"tune\nOLLAMA_MAX_LOADED_MODELS\" into a\nprecise \"this one 27G model\nis 0.5G over budget alone.\""];
+  l3 [label="The two problems were independent —\nand that was fine to exploit.\nCapping core dumps (Part A) didn't\nneed to wait on understanding WHY\nllama-server crashed; ProcessSizeMax\ncaps any oversized crash regardless\nof cause."];
+  l4 [label="Absence of a log line is data too.\n\"evicting all other models\" appearing\n158/160 times, and NO other model's\nhash ever appearing near an OOM line,\nwere as informative as the OOM\nlines themselves."];
+  l5 [label="Ruling out the mundane explanation\n(cron/timer/scripted trigger) mattered.\nA rigid periodic trigger would imply\na monitoring bug; the actual gap\ndistribution (10min-31h) instead\npoints to ordinary interactive use."];
+
+  hub -> l1; hub -> l2; hub -> l3; hub -> l4; hub -> l5;
+}

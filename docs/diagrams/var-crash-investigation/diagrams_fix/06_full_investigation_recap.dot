@@ -1,0 +1,25 @@
+digraph FullInvestigationRecap {
+  bgcolor="#0d0d0d";
+  fontname="Courier";
+  fontcolor="#00ff00";
+  rankdir=TB;
+  node [shape=box, style=filled, fillcolor="#1a1a2e", fontname="Courier", fontcolor="#00ff9f", color="#00ff9f", penwidth=2];
+  edge [color="#ff0090", penwidth=2, fontcolor="#ffcc00", fontname="Courier", fontsize=10];
+
+  s1 [label="1. /var/crash = 103G\n256 core dumps, never\ncleaned (discovered)"];
+  s2 [label="2. Deleted → reclaimed 103G\n85% → 74% disk usage"];
+  s3 [label="3. Part A FIX: routed\ncore_pattern through\nsystemd-coredump\n(ProcessSizeMax=2G caps\nany future oversized crash)", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00"];
+  s4 [label="4. Part B hypothesis #1:\n\"generic 2-model\nco-residency across a\n9-29G catalog\"\n(plausible but too broad)", fillcolor="#0d0d0d", color="#ff6600", fontcolor="#ff6600"];
+  s5 [label="5. Deep dive → hypothesis #2:\n100% of 494 OOM events =\nONE model (nemotron3:33b),\nboundary-fit catch-22", fillcolor="#0d0d0d", color="#ff6600", fontcolor="#ff6600"];
+  s6 [label="6. Found live process\n(paper_processor_dir.py)\n→ hypothesis #3 CONFIRMED:\ngemma4 ↔ nemotron3 tier\nalternation exceeds VRAM", fillcolor="#0d0d0d", color="#ffff00", fontcolor="#ffff00", penwidth=3];
+  s7 [label="7. Discovered the Aug-6\nnum_gpu=32 \"fix\" was a\nNO-OP (model only has\n31 layers)"];
+  s8 [label="8. Chose + implemented fix:\n_ensure_model_exclusive()\nproactive eviction, one\nhook in _call_ollama()"];
+  s9 [label="9. Restarted pipeline,\nVERIFIED: 26 clean tier\nswitches, 0 OOM events\nover ~4 hours", fillcolor="#0d0d0d", color="#00ff00", fontcolor="#00ff00", penwidth=3];
+  s10 [label="10. Committed + pushed:\nclaude_creations (private)\n+ paper_processor (public)", fillcolor="#0d0d0d", color="#00ffff", fontcolor="#00ffff"];
+
+  s1 -> s2 -> s3 -> s4 -> s5 -> s6 -> s7 -> s8 -> s9 -> s10;
+
+  legend [label="Arc: disk-space incident\n→ core-dump hygiene fix\n→ three rounds of hypothesis\nrevision → confirmed root\ncause → chosen + verified\nfix → persisted to git.\n2026-08-12, single session.",
+          shape=note, fillcolor="#1a1a2e", color="#ffff00", fontcolor="#ffff00"];
+  s10 -> legend [style=dashed, color="#ffff00"];
+}
