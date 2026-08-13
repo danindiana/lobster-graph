@@ -111,14 +111,20 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
     (999, "xl_quality"),    # very large book → lighter model, stays GPU-resident
 ]
 
-# Model for the C++ section. Reuse the xl_quality prose model (gemma4) rather
-# than a separate code-specialised model: for the common case (standard papers,
-# where gemma4 is already the prose model) this keeps a SINGLE model resident,
-# so the C++ section runs on the warm, fully-VRAM-resident model with no second
-# load — no eviction, no CPU-offloaded layers, no VRAM churn. gemma4:26b handles
-# code well enough for the extracted C++ examples. (Was qwen3:14b; before that
-# qwen2.5-coder:14b. The separate-coder approach forced a 2nd model into ~26 GB
-# total VRAM, OOM-ing the runner until capped via num_gpu — now moot.)
+# Fallback/suggested code model, used only as the interactive -c picker's
+# default cursor position and pre-flight-check target when --code-model is
+# explicitly passed. It is NOT used as a silent per-paper default any more —
+# see PaperProcessor.process(): each paper's C++ section now reuses whichever
+# model that paper already selected (by page-count tier or --model), so a
+# paper never switches models mid-run. Confirmed 2026-08-12 (see claude_creations
+# var-crash-investigation session): silently defaulting code_model to a fixed
+# constant caused two extra evict/reload cycles per paper whenever the paper's
+# tier model differed from this constant (e.g. every 36-200 page paper routed
+# to nemotron3:33b still switched to gemma4 for cpp, then back to nemotron3
+# for diagrams). gemma4:26b handles code well enough when it IS the
+# selected model. (Was qwen3:14b; before that qwen2.5-coder:14b — the
+# separate-coder approach forced a 2nd model into ~26 GB total VRAM, OOM-ing
+# the runner until capped via num_gpu — now moot.)
 CODE_MODEL = MODEL_TIERS["xl_quality"]
 
 # Per-model GPU layer caps (Ollama options.num_gpu) for any model that should be
@@ -969,7 +975,9 @@ class PaperProcessor:
         )
         page_count = len(pages)
         model      = select_model(page_count, self.forced_model)
-        code_model = self.forced_code_model or self.forced_model or CODE_MODEL
+        # Default to the model already selected for this paper — no mid-paper
+        # switching — unless the user explicitly asked for a different code model.
+        code_model = self.forced_code_model or model
 
         chunks     = build_chunks(pages)
         strategy   = (
@@ -1389,7 +1397,8 @@ def main():
               ≤ 35  pages  →  gemma4:26b-a4b-it-q4_K_M (~17 GB, fast/lighter)
               36–200 pages →  nemotron3:33b            (~27 GB, strong reasoning)
               > 200 pages  →  gemma4:26b-a4b-it-q4_K_M (falls back, stays GPU-resident)
-              C++ section  →  same as prose default    (gemma4:26b-a4b-it-q4_K_M)
+              C++ section  →  same model as the rest of that paper (no mid-paper
+                              switch); override with --code-model / -c
               -s / --select-model  →  scrollable curses list of ALL local Ollama
                                       models (↑/↓ + Enter; falls back to a
                                       numbered known-good menu without a TTY)
@@ -1447,7 +1456,8 @@ def main():
     )
     ap.add_argument(
         "--code-model", default=None, metavar="MODEL",
-        help="Force a specific model for C++ sections only (overrides CODE_MODEL default)",
+        help="Force a specific model for C++ sections only (overrides the default of "
+             "reusing that paper's already-selected model)",
     )
     ap.add_argument(
         "--select-code-model", "-c", action="store_true",
@@ -1504,10 +1514,10 @@ def main():
         models_to_check = (
             [args.model]
             if args.model
-            else list(dict.fromkeys(
-                [MODEL_TIERS[k] for _, k in TIER_BY_PAGES] + [CODE_MODEL]
-            ))
+            else list(dict.fromkeys([MODEL_TIERS[k] for _, k in TIER_BY_PAGES]))
         )
+        if args.code_model:
+            models_to_check = list(dict.fromkeys(models_to_check + [args.code_model]))
         check_required_models(models_to_check)
 
     if args.override and args.backend == "ollama":
