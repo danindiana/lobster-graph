@@ -122,10 +122,19 @@ TIER_BY_PAGES: List[Tuple[int, str]] = [
 CODE_MODEL = MODEL_TIERS["xl_quality"]
 
 # Per-model GPU layer caps (Ollama options.num_gpu) for any model that should be
-# bounded when co-resident with a larger one. Empty by default: with prose and
-# code sharing one model there is no second model to cap. Add an entry
-# {"<model>": <n_layers>} to force a smaller GPU footprint (0 = pure CPU).
-MODEL_GPU_LAYERS = {}
+# bounded when co-resident with a larger one, or just to relieve VRAM pressure.
+# Add an entry {"<model>": <n_layers>} to force a smaller GPU footprint
+# (0 = pure CPU). With unset num_gpu, Ollama auto-fills VRAM before spilling
+# to CPU, which for nemotron3:33b (52 blocks) currently lands ~82% of the
+# model in VRAM (~21.9 GiB of ~26.8 GiB) and leaves GPU1 (RTX 3080, 10 GB)
+# essentially full (measured 2026-08-06 via /api/ps size/size_vram). Capping
+# num_gpu below Ollama's auto-choice pushes more layers onto system RAM
+# (128 GB available, no OOM concern) at some inference-speed cost. Verify
+# with `curl -s localhost:11434/api/ps` (size vs size_vram) and `nvidia-smi`
+# after the model reloads, and adjust the layer count up/down from there.
+MODEL_GPU_LAYERS = {
+    "nemotron3:33b": 32,   # ~60% of 52 blocks on GPU, down from ~42-43 auto
+}
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
@@ -181,6 +190,27 @@ def _ollama_wait_clean(timeout: int = 30, interval: float = 2.0) -> bool:
             return True
         time.sleep(interval)
     return False
+
+
+# gemma4 (17.9G, uncapped, 100% GPU) and nemotron3 (needs ~17-18G of GPU for
+# LM weights + vision projector + KV/RS/compute overhead, even with a
+# num_gpu cap) structurally cannot both fit in the ~26.5G combined VRAM pool
+# on this hardware. Confirmed 2026-08-12 (see claude_creations
+# var-crash-investigation session): every tier switch was previously left to
+# Ollama's own fail-then-evict-all-and-retry fallback, which works but does
+# so via a noisy burst of failed cudaMalloc allocations (and, historically,
+# a multi-GB core dump) on every single switch. Evict the outgoing tier's
+# model proactively instead, so the incoming model's first load attempt
+# actually has room and never needs to fail first.
+INCOMPATIBLE_MODELS = set(MODEL_TIERS.values())
+
+
+def _ensure_model_exclusive(model: str) -> None:
+    """Evict any other large-tier model before switching to `model`."""
+    for loaded in _ollama_get_loaded():
+        if loaded != model and loaded in INCOMPATIBLE_MODELS:
+            print(f"     🔁  Evicting {loaded} to make room for {model} …")
+            _ollama_evict(loaded)
 
 
 def _ollama_restart_service() -> bool:
@@ -440,6 +470,7 @@ class Backend:
 
     # ── Ollama ────────────────────────────────────────────────────────────
     def _call_ollama(self, prompt: str, model: str, ctx: int) -> str:
+        _ensure_model_exclusive(model)
         url = f"{OLLAMA_URL}/api/generate"
         options = {
             "num_ctx":        ctx,
