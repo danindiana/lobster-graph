@@ -3,6 +3,9 @@ wizard/target/
 **/*.rs.bk
 Cargo.lock
 
+# Node
+node_modules/
+
 # Python
 __pycache__/
 *.py[cod]
