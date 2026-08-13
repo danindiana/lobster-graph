@@ -35,11 +35,128 @@ function buildLegend(container) {
   container.innerHTML = rows;
 }
 
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
+}
+
+// Per-type (label, propKey, {pre: renderAsMonospaceBlock}) field lists for the
+// detail modal. Fields not listed here (besides the excluded ones) fall back
+// to a generic "other properties" dump so nothing stored on the node is hidden.
+const DETAIL_FIELDS = {
+  Paper: [
+    ["Motivation & Problem", "motivation"],
+    ["Methodology", "methodology"],
+    ["Key Contributions", "contributions"],
+    ["Limitations", "limitations"],
+    ["Significance", "significance"],
+    ["Extras", "extras"],
+    ["Page Count", "page_count"],
+    ["Processed At", "processed_at"],
+    ["Source PDF Path", "pdf_path"],
+  ],
+  Concept: [["Definition", "definition"]],
+  Theorem: [["Statement", "statement"]],
+  Algorithm: [
+    ["Pseudocode", "pseudocode", { pre: true }],
+    ["Invariant", "invariant"],
+  ],
+  CodeSnippet: [
+    ["Language", "language"],
+    ["Code", "code", { pre: true }],
+  ],
+  Diagram: [
+    ["Graphviz Source", "dot_src", { pre: true }],
+    ["SVG Path (relative to its dataset's _processed/)", "svg_path"],
+  ],
+};
+const DETAIL_EXCLUDE = new Set(["fx", "fy", "name", "title"]);
+
+function renderNodeDetail(type, props, id) {
+  const heading = escapeHtml(props.name ?? props.title ?? `${type} #?`);
+  const fields = DETAIL_FIELDS[type] || [];
+  const shown = new Set(fields.map(([, key]) => key));
+
+  let body = fields
+    .map(([label, key, opts]) => {
+      const value = props[key];
+      if (value === undefined || value === null || value === "") return "";
+      const html = opts?.pre
+        ? `<pre>${escapeHtml(value)}</pre>`
+        : `<p>${escapeHtml(value)}</p>`;
+      return `<div class="detail-field"><h3>${escapeHtml(label)}</h3>${html}</div>`;
+    })
+    .join("");
+
+  const rest = Object.entries(props).filter(
+    ([key]) => !DETAIL_EXCLUDE.has(key) && !shown.has(key)
+  );
+  if (rest.length) {
+    body += rest
+      .map(
+        ([key, value]) =>
+          `<div class="detail-field"><h3>${escapeHtml(key)}</h3><p>${escapeHtml(value)}</p></div>`
+      )
+      .join("");
+  }
+
+  let pdfButton = "";
+  if (type === "Paper") {
+    pdfButton = `<a class="pdf-button" href="/pdf/${id}" target="_blank" rel="noopener">Open source PDF ↗</a>`;
+  }
+
+  return `
+    <div class="detail-header">
+      <span class="detail-type" style="color:${PALETTE[type] || DEFAULT_COLOR}">${escapeHtml(type)}</span>
+      <h2>${heading}</h2>
+      ${pdfButton}
+    </div>
+    <div class="detail-body">${body || "<p>No additional properties stored.</p>"}</div>
+  `;
+}
+
+const DOUBLE_CLICK_MS = 400;
+
 async function main() {
   const statusEl = document.getElementById("status");
   const legendEl = document.getElementById("legend");
   const tooltipEl = document.getElementById("tooltip");
   const canvasHost = document.getElementById("graph");
+  const modalEl = document.getElementById("modal");
+  const modalContentEl = document.getElementById("modal-content");
+  const modalCloseEl = document.getElementById("modal-close");
+
+  function closeModal() {
+    modalEl.style.display = "none";
+  }
+  modalCloseEl.addEventListener("click", closeModal);
+  modalEl.addEventListener("click", (e) => {
+    if (e.target === modalEl) closeModal();
+  });
+
+  async function openNodeDetail(id, type, fallbackLabel) {
+    // window.open must happen synchronously within the click handler (before
+    // any await) or browsers treat it as a non-user-initiated popup and block it.
+    if (type === "Paper") {
+      window.open(`/pdf/${id}`, "_blank", "noopener");
+    }
+
+    modalEl.style.display = "flex";
+    modalContentEl.innerHTML = `<div class="detail-header"><h2>${escapeHtml(fallbackLabel)}</h2></div><div class="detail-body"><p>Loading…</p></div>`;
+    try {
+      const res = await fetch(`/api/node/${id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { type: fetchedType, props } = await res.json();
+      modalContentEl.innerHTML = renderNodeDetail(fetchedType || type, props, id);
+    } catch (err) {
+      modalContentEl.innerHTML = `<div class="detail-header"><h2>${escapeHtml(fallbackLabel)}</h2></div><div class="detail-body"><p>Failed to load details: ${escapeHtml(err.message)}</p></div>`;
+    }
+  }
 
   buildLegend(legendEl);
   statusEl.textContent = "Loading graph from Neo4j...";
@@ -81,6 +198,19 @@ async function main() {
   }
   const trimmedLinks = linkCount === edges.length ? links : links.slice(0, linkCount * 2);
 
+  let lastClick = null; // { index, time } — cosmos.gl has no native dblclick event
+  const handlePointClick = (index) => {
+    const n = nodes[index];
+    if (!n) return;
+    const now = Date.now();
+    if (lastClick && lastClick.index === index && now - lastClick.time < DOUBLE_CLICK_MS) {
+      lastClick = null;
+      openNodeDetail(n.id, n.type, n.label);
+    } else {
+      lastClick = { index, time: now };
+    }
+  };
+
   const graph = new Graph(canvasHost, {
     enableSimulation: false,
     backgroundColor: "#101014",
@@ -100,6 +230,9 @@ async function main() {
     },
     onPointMouseOut: () => {
       tooltipEl.style.display = "none";
+    },
+    onPointClick: (index) => {
+      if (index !== undefined) handlePointClick(index);
     },
     onMouseMove: (index, pointPosition, event) => {
       if (event) {
