@@ -1,0 +1,60 @@
+digraph cosmosgl_systemd_notifications {
+  graph [bgcolor="black" rankdir=LR fontname="Courier New"
+         label="CosmosGL Dashboard — systemd, wall, motd, and .py entry-point notices"
+         labelloc=t fontcolor="#00FF41" fontsize=16 pad=0.5];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New"
+         fontsize=11 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=10 penwidth=2.0];
+
+  subgraph cluster_boot {
+    label="System Boot"; fontcolor="#FF6600"; color="#FF6600"; style=dashed;
+    target  [label="multi-user.target"                     color="#FF6600" fontcolor="#FF6600" shape=box];
+    svc     [label="cosmos-dashboard.service\nUser=jeb, Restart=always\nAfter=paper-processor-neo4j" color="#FF6600" fontcolor="#FF6600" shape=component];
+  }
+
+  subgraph cluster_proc {
+    label="Running Process"; fontcolor="#7FFF00"; color="#7FFF00"; style=dashed;
+    py [label="cosmos_server.py\n0.0.0.0:8686" color="#7FFF00" fontcolor="#7FFF00" shape=box3d];
+  }
+
+  subgraph cluster_hooks {
+    label="Lifecycle Hooks"; fontcolor="#00FFFF"; color="#00FFFF"; style=dashed;
+    startpost [label="ExecStartPost\n(- prefix: never fails the unit)" color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    stoppost  [label="ExecStopPost\n(- prefix: never fails the unit)"  color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    wall      [label="wall\nbroadcast to all logged-in ttys" color="#00FFFF" fontcolor="#00FFFF" shape=cds];
+  }
+
+  subgraph cluster_motd {
+    label="Login Banner"; fontcolor="#FF00FF"; color="#FF00FF"; style=dashed;
+    motd [label="/etc/update-motd.d/\n96-cosmosgl-status"      color="#FF00FF" fontcolor="#FF00FF" shape=note];
+    check [label="systemctl is-active\ncosmos-dashboard"        color="#FF00FF" fontcolor="#FF00FF" shape=diamond];
+    dynmotd [label="/run/motd.dynamic\n(shown on every login/SSH)" color="#FF00FF" fontcolor="#FF00FF" shape=box3d];
+  }
+
+  subgraph cluster_scripts {
+    label="User-Facing Entry Points"; fontcolor="#FFFF00"; color="#FFFF00"; style=dashed;
+    wizard [label="vram_wizard.py\nmanage_visualization()\n• Neo4j / :8585 / :8686 status\n• Network & Remote Access Setup" color="#FFFF00" fontcolor="#FFFF00" shape=box];
+    ppdir  [label="paper_processor_dir.py\n_print_dashboard_status()\nprinted at run startup" color="#FFFF00" fontcolor="#FFFF00" shape=box];
+  }
+
+  user [label="Operator" color="#DA70FF" fontcolor="#DA70FF" shape=note];
+
+  target -> svc [color="#FF6600" label="boots"];
+  svc -> py [color="#7FFF00" label="ExecStart"];
+
+  svc -> startpost [color="#00FFFF" label="on start"];
+  svc -> stoppost  [color="#00FFFF" label="on stop/restart"];
+  startpost -> wall [color="#00FFFF" label="\"...is UP\""];
+  stoppost  -> wall [color="#00FFFF" label="\"...is DOWN\""];
+  wall -> user [color="#00FFFF" label="immediate broadcast\n(open terminals only)" style=dashed];
+
+  motd -> check [color="#FF00FF"];
+  check -> dynmotd [color="#FF00FF" label="active/stopped +\nLAN URL"];
+  dynmotd -> user [color="#FF00FF" label="next login" style=dashed];
+
+  wizard -> user [color="#FFFF00" label="menu status line" style=dashed];
+  ppdir  -> user [color="#FFFF00" label="startup banner line" style=dashed];
+
+  svc -> wizard [color="#7FFF00" label="systemctl is-active\n(read-only check)" style=dotted];
+  svc -> ppdir  [color="#7FFF00" label="systemctl is-active\n(read-only check)" style=dotted];
+}

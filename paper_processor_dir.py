@@ -1228,6 +1228,33 @@ def health_check_openclaw():
         return False
 
 
+def _print_dashboard_status():
+    """Best-effort, non-blocking heads-up that the Neo4j graph dashboards exist.
+    Purely informational — never raises, never blocks a run if a port probe hangs."""
+    import socket
+    import subprocess as _sp
+
+    def port_open(port):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.3)
+                return s.connect_ex(("localhost", port)) == 0
+        except Exception:
+            return False
+
+    try:
+        cosmos_active = _sp.run(
+            ["systemctl", "is-active", "cosmos-dashboard"],
+            capture_output=True, text=True, timeout=1,
+        ).stdout.strip() == "active"
+    except Exception:
+        cosmos_active = port_open(8686)
+
+    webgl_state = "up (:8585)" if port_open(8585) else "not running — see vram_wizard.py"
+    cosmos_state = "up (:8686, systemd)" if cosmos_active else "not running — sudo systemctl start cosmos-dashboard"
+    print(f"  Dashboards: webgl.html {webgl_state}  |  CosmosGL {cosmos_state}")
+
+
 def _sync_to_neo4j(processed_dir: Optional[str] = None):
     """Checks if Neo4j is listening on Port 7687 and runs the importer script to auto-sync."""
     if not _sync_lock.acquire(blocking=False):
@@ -1582,6 +1609,7 @@ def main():
 
     print(f"  Papers    : {len(pdfs)}")
     print(f"  Output    : {papers_dir / '_processed'}")
+    _print_dashboard_status()
     print()
 
     processor = PaperProcessor(

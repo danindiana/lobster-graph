@@ -282,3 +282,50 @@ Detailed setup history, lessons learned, and future directions: see `docs/sessio
 ### Architecture Diagram
 
 ![Neo4j boot service and integration](diagrams/09_neo4j_boot_service.svg)
+
+## CosmosGL Dashboard
+
+`neo4j_viz/cosmos_*` is a second, complementary Neo4j visualization (`@cosmos.gl/graph`) alongside the `webgl.html`/`server.py` one. See the README's "System Diagrams & Architecture" #7–8 for the request/render flow. This section covers how it's kept running and made visible to an operator.
+
+### systemd service
+
+Unit: `/etc/systemd/system/cosmos-dashboard.service`
+
+```ini
+[Unit]
+Description=Lobster Graph CosmosGL Dashboard (neo4j_viz/cosmos_server.py)
+After=network.target paper-processor-neo4j.service
+Wants=paper-processor-neo4j.service
+
+[Service]
+Type=simple
+User=jeb
+WorkingDirectory=/home/jeb/programs/python_programs/paper_processor
+ExecStart=/home/jeb/programs/python_programs/paper_processor/.venv/bin/python neo4j_viz/cosmos_server.py
+Restart=always
+RestartSec=5
+
+ExecStartPost=-/usr/bin/wall "CosmosGL dashboard (Lobster Graph) is UP — http://%H:8686"
+ExecStopPost=-/usr/bin/wall "CosmosGL dashboard (Lobster Graph) is DOWN (was on port 8686)"
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enabled at boot (`systemctl enable --now cosmos-dashboard`), `After=`/`Wants=` on `paper-processor-neo4j.service` so it comes up after the graph database it depends on — but does not hard-fail if Neo4j is briefly unavailable (`cosmos_server.py`'s `/api/graph` just 500s until Neo4j answers). The `-` prefix on the `wall` hooks means a `wall` failure (e.g. a stale pty in `utmp`) never fails the unit itself — confirmed by manual testing, since `wall` reliably logs a harmless `/dev/pts/N: No such file or directory` for dead sessions while still delivering to live ones.
+
+Unlike `neo4j_viz/server.py` (port 8585), which is still started/stopped manually (from `vram_wizard.py` or by hand), `cosmos_server.py` is fully systemd-managed: it survives reboots and restarts automatically on crash.
+
+### Operator visibility (wall / motd / entry-point notices)
+
+Three places surface the service's state so it's never a silent surprise:
+
+1. **`wall` broadcast** — on every start/stop/restart, `ExecStartPost`/`ExecStopPost` broadcast a one-line notice to every logged-in terminal, immediately.
+2. **Login banner** — `/etc/update-motd.d/96-cosmosgl-status` runs `systemctl is-active cosmos-dashboard` and prints status + LAN URL on every login/SSH session (same convention as `95-netdata-status`, `96-openclaw-status`).
+3. **`.py` entry points** — the two scripts an operator actually runs by hand print a status line so the dashboards aren't a separate thing to remember:
+   - `vram_wizard.py` → `manage_visualization()` shows a `CosmosGL Dashboard (8686)` status line alongside the existing Neo4j/8585 ones, and the "Network & Remote Access Setup" submenu now lists both `:8585` and `:8686`.
+   - `paper_processor_dir.py` → `_print_dashboard_status()` prints a one-line `Dashboards: webgl.html ... | CosmosGL ...` heads-up right in the run startup banner (best-effort: a 0.3s socket probe / 1s `systemctl` timeout, never blocks or raises if a check hangs).
+
+### Architecture Diagram
+
+![CosmosGL systemd, wall, motd, and entry-point notices](diagrams/12_cosmosgl_systemd_notifications.svg)

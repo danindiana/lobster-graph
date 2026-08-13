@@ -81,9 +81,20 @@ def manage_visualization():
             server_status = f"{NEON_GREEN}ACTIVE (Listening on Port 8585){RESET}"
         else:
             server_status = f"{NEON_ORANGE}INACTIVE{RESET}"
-            
+
+    # Check CosmosGL companion dashboard — systemd-managed (cosmos-dashboard.service), not
+    # started/stopped from here. Status shown for visibility only.
+    cosmos_svc = subprocess.run(
+        ["systemctl", "is-active", "cosmos-dashboard"], capture_output=True, text=True
+    ).stdout.strip()
+    if cosmos_svc == "active":
+        cosmos_status = f"{NEON_GREEN}ACTIVE (systemd: cosmos-dashboard, Port 8686){RESET}"
+    else:
+        cosmos_status = f"{NEON_ORANGE}{cosmos_svc or 'INACTIVE'} → sudo systemctl start cosmos-dashboard{RESET}"
+
     print(f"  • Neo4j Graph DB Container  : {neo4j_status}")
     print(f"  • Dashboard Web Server Port : {server_status}")
+    print(f"  • CosmosGL Dashboard (8686) : {cosmos_status}")
     print()
     
     action = prompt_choice("Select action", [
@@ -172,8 +183,9 @@ def manage_visualization():
         print(f"\n  {BOLD}1. LAN Access (Same Network){RESET}")
         print(f"     Both the Dashboard and Neo4j database automatically bind to 0.0.0.0.")
         print(f"     Simply go to a browser on another device and enter:")
-        print(f"     {NEON_GREEN}http://<YOUR_LAN_IP>:8585{RESET}")
-        print(f"     (Note: Ensure your firewall allows inbound TCP on ports 8585 and 7687)")
+        print(f"     {NEON_GREEN}http://<YOUR_LAN_IP>:8585{RESET}  (webgl.html — manually started)")
+        print(f"     {NEON_GREEN}http://<YOUR_LAN_IP>:8686{RESET}  (CosmosGL — systemd: cosmos-dashboard.service)")
+        print(f"     (Note: Ensure your firewall allows inbound TCP on ports 8585, 8686 and 7687)")
         
         print(f"\n  {BOLD}2. Remote Internet Access (Secure SSH Tunnel){RESET}")
         print(f"     Since Neo4j uses a separate port (7687) from the web server (8585),")
