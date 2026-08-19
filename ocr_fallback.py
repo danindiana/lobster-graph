@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import fitz  # pymupdf — already a hard dependency of the pipeline
+import pymupdf as fitz  # `import fitz` alias is deprecated as of pymupdf 1.28
 
 
 # ── Tunable defaults (overridable via CLI / kwargs) ─────────────────────────
