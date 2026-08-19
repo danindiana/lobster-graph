@@ -188,6 +188,32 @@ CODE_MODEL = MODEL_TIERS["xl_quality"]
 # No cap needed — better GPU residency than nemotron3:33b ever achieved
 # (which needed a manual 32-layer cap to reach only ~82%). Leave empty
 # unless a future quant or context-length change pushes it past the pool.
+#
+# 2026-08-19, dellt3600 dev box (Quadro P4000 8GB + GTX 1060 6GB, ~13.7GB
+# free combined — NOT the RTX 5080/3080 box above): tried forcing
+# gpt-oss:20b (24 layers, ~13.2GB file) fully onto GPU here via num_gpu=24
+# since neither production tier model fits this box and gpt-oss:20b was
+# picked as the --model override. Do NOT add an entry for it — tested and
+# reverted:
+#   - Ollama's own auto-fit at this pipeline's real num_ctx=32768 put only
+#     68.6% of weights on GPU (size_vram 9.15GB / size 13.34GB) and left it
+#     catastrophically slow — a single "hi" prompt didn't finish inside a
+#     300s timeout (gpt-oss is MoE; CPU-offloaded expert routing is far
+#     worse than a dense model's CPU spillover).
+#   - Forcing num_gpu=24 at Ollama's default num_ctx=4096 (NOT this
+#     pipeline's real context) did reach 88% residency and ran fast
+#     (~31 tok/s), but at the pipeline's actual num_ctx=32768 the same
+#     num_gpu=24 hard-crashes: cudaMalloc failed: out of memory allocating
+#     the KV-cache buffer. The ~13.2GB weight file leaves under 500MB of
+#     headroom in the ~13.7GB pool — not enough for a 32K-context KV cache
+#     on top of full weight residency, so num_gpu=24 is unsafe as a
+#     standing config for real runs on this box.
+#   - This is a hardware VRAM ceiling, not a config problem: at this
+#     pipeline's real context length, gpt-oss:20b cannot be made both fully
+#     GPU-resident and fast on this specific 14GB two-card pool. A smaller
+#     num_ctx (would need pipeline-level per-model context support, not
+#     just this dict) or a smaller model are the only ways out, not a
+#     bigger num_gpu.
 MODEL_GPU_LAYERS = {}
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
@@ -454,15 +480,22 @@ DIAGRAM_PROMPT = textwrap.dedent("""\
       Diagram 6 — Comparison vs Prior Art (or Ablation Structure)
 
     ══ MANDATORY VISUAL STYLE (apply to EVERY diagram) ══
-      graph-level:  bgcolor="black"
-      node default: style=filled, fillcolor="#0a0a0a", fontname="Courier New", fontsize=11
+    Include these exact two statements, verbatim, as the first two lines inside
+    every "digraph G {" body (this is real DOT syntax — copy it exactly,
+    do not paraphrase or restructure it):
+      bgcolor="black";
+      node [style=filled, fillcolor="#0a0a0a", fontname="Courier New", fontsize=11];
+
       Use NEON accent colours for borders, labels, and edges. Pick from:
         Electric Green  #00FF41    Hot Magenta  #FF00FF    Cyan      #00FFFF
         Neon Orange     #FF6600    Volt Yellow  #FFFF00    Hot Pink  #FF0055
         Chartreuse      #7FFF00    Electric Blue #0080FF   Lavender  #DA70FF
       Edges: penwidth=2.0, use neon colours (vary per diagram)
-      Graph titles: use label= and labelloc=t with a bright fontcolor
+      Graph titles: set label="..." and labelloc=t and a bright fontcolor="..."
+        as attributes of the digraph itself (not inside a subgraph/cluster).
       Mix rankdir=LR and rankdir=TB between diagrams for variety.
+      Every line must be valid, renderable Graphviz DOT syntax — no
+      pseudo-syntax, no descriptive labels standing in for real statements.
 
     ══ OUTPUT FORMAT — strictly follow this delimiter pattern ══
     ===DIAGRAM_START: <Descriptive Title for Diagram N>===
@@ -515,19 +548,21 @@ class Backend:
                (model selection via OPENCLAW_MODEL env var or pre-configured gateway)
     """
 
-    def __init__(self, name: str, default_model: str):
-        self.name          = name
-        self.default_model = default_model
+    def __init__(self, name: str, default_model: str, default_ctx_tokens: int = 32768):
+        self.name               = name
+        self.default_model      = default_model
+        self.default_ctx_tokens = default_ctx_tokens
 
     def call(
         self,
         prompt: str,
         model: Optional[str] = None,
-        ctx_tokens: int = 32768,
+        ctx_tokens: Optional[int] = None,
     ) -> str:
         m = model or self.default_model
+        ctx = ctx_tokens if ctx_tokens is not None else self.default_ctx_tokens
         if self.name == "ollama":
-            return self._call_ollama(prompt, m, ctx_tokens)
+            return self._call_ollama(prompt, m, ctx)
         return self._call_openclaw(prompt, m)
 
     # ── Ollama ────────────────────────────────────────────────────────────
@@ -1173,7 +1208,6 @@ class PaperProcessor:
                 raw = self.backend.call(
                     self._tag_prompt(DIAGRAM_PROMPT, capped[:30_000]),
                     model,
-                    ctx_tokens=32768,
                 )
             except _ShutdownRequested:
                 _checkpoint()
@@ -1573,6 +1607,16 @@ def main():
         help="Extra debug output",
     )
     ap.add_argument(
+        "--ctx-tokens", type=int, default=32768,
+        metavar="N",
+        help="Ollama num_ctx for prose/logic/cpp/diagrams/extras calls "
+             "(the map-reduce chunk-summary step keeps its own smaller 16384 "
+             "regardless). Lower this to fit small-VRAM boxes: prompts are "
+             "capped at 45k chars (~11-12k tokens) so 16384 is comfortable "
+             "for most papers; the 6-diagram section is the biggest consumer "
+             "and may need more. [default: 32768]",
+    )
+    ap.add_argument(
         "--select-model", "-s", action="store_true",
         help="Interactively choose the model (scrollable TUI over all local Ollama models) before processing (overrides auto-selection by page count)",
     )
@@ -1686,7 +1730,7 @@ def main():
             print("[warn] --select-code-model ignored (stdin is not a TTY)", file=sys.stderr)
 
     default_model = args.model or MODEL_TIERS["xl_quality"]
-    backend       = Backend(args.backend, default_model)
+    backend       = Backend(args.backend, default_model, default_ctx_tokens=args.ctx_tokens)
 
     print(f"  Backend   : {args.backend}")
     print(f"  Directory : {papers_dir}")
