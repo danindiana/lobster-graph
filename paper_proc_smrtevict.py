@@ -1421,12 +1421,21 @@ def _sync_to_neo4j(processed_dir: Optional[str] = None):
                 cmd = [sys.executable, "neo4j_viz/neo4j_importer.py"]
                 if processed_dir:
                     cmd.append(processed_dir)
-                subprocess.run(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                print("  ✅ Neo4j database sync complete!")
+                try:
+                    subprocess.run(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=120,
+                    )
+                    print("  ✅ Neo4j database sync complete!")
+                except subprocess.TimeoutExpired:
+                    # A pooled bolt connection Neo4j closed server-side (idle timeout)
+                    # can leave the importer blocked on a dead socket read with no
+                    # bound — subprocess.run has no default timeout, so this used to
+                    # hang the whole pipeline forever. Kill it and let the next
+                    # periodic sync cycle pick up the backlog instead.
+                    print("  ⚠️  Neo4j sync timed out after 120s (stale connection?) — skipped, will retry next cycle")
     except Exception:
         pass
     finally:
