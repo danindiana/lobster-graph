@@ -7,6 +7,7 @@
 import os
 import re
 import json
+import time
 from pathlib import Path
 from neo4j import GraphDatabase
 
@@ -130,14 +131,27 @@ def main():
     if len(sys.argv) > 1:
         PROCESSED_DIR = Path(sys.argv[1])
     print(f"🔗 Connecting to Neo4j at {NEO4J_URI}...")
-    try:
-        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-        # Verify connection
-        driver.verify_connectivity()
-        print("✅ Connected to Neo4j successfully!")
-    except Exception as e:
-        print(f"❌ Failed to connect to Neo4j: {e}")
-        return
+    driver = None
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+            driver.verify_connectivity()
+            print("✅ Connected to Neo4j successfully!")
+            break
+        except Exception as e:
+            if driver is not None:
+                driver.close()
+                driver = None
+            if attempt == max_attempts:
+                print(f"❌ Failed to connect to Neo4j after {max_attempts} attempts: {e}")
+                return
+            # The host machine is often CPU-starved by concurrent LLM inference at the
+            # moment this subprocess is spawned, which can push the driver's handshake
+            # past Neo4j's 30s auth timeout on the first try. Back off and retry.
+            wait = 2 ** attempt
+            print(f"⚠️  Connect attempt {attempt}/{max_attempts} failed ({e}); retrying in {wait}s...")
+            time.sleep(wait)
 
     # Remove the full database drop so background syncs don't cause sudden disconnects/blank screens
     print("🔄 Ensuring database graph is ready...")

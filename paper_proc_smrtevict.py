@@ -536,6 +536,12 @@ class Metadata:
 
 ALL_SECTIONS = {"summary", "logic", "cpp", "diagrams", "extras"}
 
+# Cross-process claim timeout for concurrent workers (e.g. one instance per
+# GPU) sharing the same papers_dir/_processed tree. A lock older than this is
+# assumed to be from a crashed worker, not a paper that's legitimately still
+# running, and gets reclaimed.
+STALE_LOCK_SECONDS = 4 * 3600
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BACKEND  (Ollama direct API  or  OpenClaw agent CLI)
@@ -1086,6 +1092,24 @@ class PaperProcessor:
             print(f"  ⏭   {pdf_path.name}  (all sections complete)")
             return
 
+        # Cross-process claim so two concurrent workers (e.g. one per GPU,
+        # both scanning the same papers_dir) never both pick up this paper.
+        lock_path = paper_dir / ".processing.lock"
+        try:
+            lock_path.touch(exist_ok=False)
+        except FileExistsError:
+            age = time.time() - lock_path.stat().st_mtime
+            if age < STALE_LOCK_SECONDS:
+                print(f"  🔒  {pdf_path.name}  (claimed by another worker {age:.0f}s ago — skipping)")
+                return
+            print(f"  ⚠️   {pdf_path.name}  (stale lock {age/3600:.1f}h old — reclaiming)")
+
+        try:
+            self._process_locked(pdf_path, paper_dir, meta_path, meta)
+        finally:
+            lock_path.unlink(missing_ok=True)
+
+    def _process_locked(self, pdf_path: Path, paper_dir: Path, meta_path: Path, meta) -> None:
         print(f"\n{'─'*64}")
         print(f"  📄  {pdf_path.name}")
 
