@@ -30,6 +30,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 *.log
+logs/gpu_temp.csv
 
 # Pipeline outputs (corpus-specific, never commit)
 _processed/
