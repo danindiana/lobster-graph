@@ -1,0 +1,32 @@
+#!/bin/bash
+# paper_proc operator quick-start — motd entry.
+# Added 2026-08-23 after benchmarking found gemma4:e2b-it-qat is the only
+# locally-pulled model that's both fast enough and diagram-format-compliant
+# on this box's hardware. Sits right after 94-paperproc-gpu-workers (which
+# shows live status) — this one shows the actual commands to run.
+# Full reference: ~/Documents/claude_creations/session_1787507023_paper-proc-investigation/ascii_tree.md
+# Also broadcast periodically via `wall` — see scripts/paperproc_howto_wall.sh + crontab.
+
+GREEN='\033[1;32m'; ORANGE='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+
+echo ""
+echo -e "${BOLD}${CYAN}paper_proc${RESET} — how to run paper_proc_smrtevict.py (operator quick-start)"
+echo -e "  ${BOLD}1. Start the GPU-pinned Ollama backend${RESET} (skip if already up — see 94-paperproc-gpu-workers above):"
+echo -e "       ~/programs/paper_proc/docs/sessions/1787167674_pin-model-gtx1060/start_gpu1_backend.sh"
+echo -e "       ${GREEN}↳ GTX1060, port 11435 — 48 tok/s, SAFE for unattended/overnight runs${RESET}"
+echo -e "       ~/programs/paper_proc/docs/sessions/1787453228_pin-model-quadro-p4000/start_gpu0_backend.sh"
+echo -e "       ${ORANGE}↳ P4000, port 11436 — 61 tok/s, but hits 82°C in ~7min under this load —${RESET}"
+echo -e "       ${ORANGE}  supervise only, do not leave unattended until the fan is installed${RESET}"
+echo -e "  ${BOLD}2. Launch${RESET} (recommended: safe GTX1060 backend):"
+echo -e "       cd ~/programs/paper_proc && nohup env OLLAMA_URL=http://127.0.0.1:11435 \\"
+echo -e "         .venv/bin/python paper_proc_smrtevict.py --model gemma4:e2b-it-qat \\"
+echo -e "         /home/ricky/Documents/AI-ML_Papers/aug_8_2026 \\"
+echo -e "         > logs/smrtevict_\$(date +%s).log 2>&1 & disown"
+echo -e "  ${BOLD}3. Monitor:${RESET}  tail -f logs/smrtevict_*.log   |   watch -n5 nvidia-smi   |   ./paper_proc_smrtevict.py --list"
+echo -e "       tail -f /tmp/ollama_gpu1.log   ${ORANGE}← raw Ollama access log for the GTX1060 backend itself${RESET}"
+echo -e "       ${ORANGE}  (journalctl -u ollama -f watches the WRONG daemon — that's the shared${RESET}"
+echo -e "       ${ORANGE}  systemd instance on :11434, not this pinned :11435 one, which isn't a systemd unit)${RESET}"
+echo -e "  ${BOLD}4. Stop (checkpoint-safe):${RESET}  pkill -TERM -f paper_proc_smrtevict.py"
+echo -e "       ${ORANGE}↳ ONE signal only — a 2nd SIGTERM/SIGINT forces an unsafe immediate exit, skipping the checkpoint${RESET}"
+echo -e "  Full reference: ~/Documents/claude_creations/session_1787507023_paper-proc-investigation/ascii_tree.md"
+echo ""
