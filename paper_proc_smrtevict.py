@@ -7,13 +7,13 @@ For each PDF in the target directory, produces:
   02_symbolic_logic.md   — Core insights in formal symbolic logic
   03_cpp_examples.md     — C++20/23 implementations of key algorithms
   diagrams/              — 6+ Graphviz DOT + rendered SVG (neon/black)
-  04_extras.md           — Open questions, connections, critical assessment
+  04_extras.md            — Open questions, connections, critical assessment
   metadata.json          — Audit trail (model, hash, timestamps, strategy)
 
 Usage:
-  python paper_processor.py                               # all papers, ollama backend
+  python paper_processor.py                               # prompt/reuse saved target dir, ollama backend
   python paper_processor.py --backend openclaw            # use OpenClaw agent CLI
-  python paper_processor.py --model deepseek-r1:14b      # force a model
+  python paper_processor.py --model qwen3.6:35b           # force a model
   python paper_processor.py --paper "attention.pdf"      # single paper
   python paper_processor.py --list                        # show status table
   python paper_processor.py --reprocess diagrams         # redo one section
@@ -39,7 +39,7 @@ from typing import List, Optional, Tuple
 
 # ── Third-party imports ────────────────────────────────────────────────────
 try:
-    import pymupdf  # noqa: F401  (availability probe; OCR/extraction uses it via ocr_fallback)
+    import pymupdf as fitz  # also used directly by _quick_page_count() below
 except ImportError:
     sys.exit("❌  pymupdf not installed.\n    Fix: pip install pymupdf --break-system-packages")
 
@@ -59,6 +59,16 @@ from ocr_fallback import (
 # Per-document OCR rasterisation budget (caps blast radius on huge scanned
 # books). Pages beyond this fall back to native text; 0 disables the cap.
 DEFAULT_OCR_MAX_PAGES = 40
+
+# Batch tier-sort pre-scan: on very large directories (thousands of PDFs),
+# probing every file's page count via _quick_page_count() before sorting can
+# itself take real wall-clock time (slow disks, network mounts, huge scanned
+# books). SORT_PROBE_SAMPLE_SIZE files are timed up front and extrapolated
+# to estimate total scan cost; if that estimate exceeds
+# SORT_PROBE_BUDGET_SECONDS, --sort-batch=auto (the default) skips or prompts
+# instead of silently stalling startup. See _estimate_sort_cost().
+SORT_PROBE_SAMPLE_SIZE = 50
+SORT_PROBE_BUDGET_SECONDS = 5.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -87,81 +97,144 @@ class _ShutdownRequested(Exception):
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HARDWARE CONTEXT
-# RTX 3080  → 10 240 MiB VRAM   (GPU 0, display attached)
-# RTX 3060  → 12 288 MiB VRAM   (GPU 1)
-# Total     →  ~22 GB  (Ollama auto-spans with CUDA_VISIBLE_DEVICES or its own scheduler)
+# RTX 5080  → 16 303 MiB VRAM   (CUDA0, confirmed via nvidia-smi 2026-08-15)
+# RTX 3080  → 10 240 MiB VRAM   (CUDA1, unchanged from original pre-swap spec)
+# Total     →  26 543 MiB (~25.9 GB) raw nameplate; Ollama's own internal
+#              fit accounting runs ~450-1000 MiB lower per device (expected
+#              driver/OS reservation, not an error — see load-log figures
+#              elsewhere in this file, which reflect Ollama's view).
+# Desktop overhead → ~469 MiB permanently unavailable to Ollama regardless
+#              of card totals: 53 MiB Xorg on CUDA0, ~416 MiB Xorg + misc
+#              desktop processes on CUDA1 (confirmed via nvidia-smi
+#              Processes table, 2026-08-15). Realistic usable pool is closer
+#              to ~25.4 GB than the raw 25.9 GB nameplate sum.
 # RAM       → 128 GB   (no OOM concern for CPU offload)
+#
+# 2026-08-15: CUDA1 confirmed via nvidia-smi as an RTX 3080 (10 240 MiB,
+# exactly matching this block's original pre-swap figure) — that card never
+# moved. CUDA0 is now an RTX 5080 (16 303 MiB), replacing the prior RTX 3060
+# (12 288 MiB) entirely. Confirmed real via nvidia-smi output, not a driver
+# enumeration artifact.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Models in approximate VRAM-fit order (dual-GPU first, then single-GPU)
+# Models restricted to just two for now (2026-08-06): gemma4 as the default
+# lighter/faster prose model, xl_reason as the heavier strong-reasoning model
+# for long/complex papers. All other tiers retired until re-enabled.
+#
+# 2026-08-15: xl_reason swapped nemotron3:33b → qwen3.6:35b. Benchmark
+# comparison (MMLU-Pro, GPQA Diamond, LiveCodeBench v6, AIME) showed plain
+# nemotron3-nano actually underperforming gemma4:26b-a4b-it on the exact
+# axes that matter for this pipeline's tasks — the tier wasn't earning its
+# "reasoning" position. qwen3.6:35b-a3b beats BOTH gemma4 and nemotron3 on
+# those same benchmarks (85.2% MMLU-Pro / 86.0% GPQA / 92.7% AIME vs.
+# gemma4's 82.6% / 82.3% / 88.3%), is Apache-2.0 licensed, and is also MoE
+# (~3B active of 36B total — comparable inference speed class to gemma4's
+# ~3.8B active, not a dense-model slowdown). See KNOWN_GOOD_MODELS /
+# MODEL_GPU_LAYERS below for what still needs re-measuring on this specific
+# hardware post-swap.
 MODEL_TIERS = {
-    # ── Dual-GPU tier  (~18–20 GB) ──────────────────────────────────────
-    "xl_quality":   "gemma4:26b-a4b-it-q4_K_M",     # MoE a4b (~17 GB); swapped from nemotron-3-nano-30b 2026-06-11
-    "xl_reason":    "deepseek-r1:32b",              # Strong chain-of-thought
-    "xl_code":      "qwen3-coder:30b",              # Best for C++ sections
-    # ── Mid tier  (~14–17 GB) ───────────────────────────────────────────
-    "mid_code":     "devstral:24b",                 # Good code, fits dual-GPU
-    "mid_reason":   "deepseek-r1:14b-qwen-distill-q8_0",  # Q8 fidelity at 14B
-    # ── Single-GPU tier  (≤12 GB, fits on 3060) ─────────────────────────
-    "single":       "deepseek-r1:14b",              # Reliable, 9 GB
-    "single_code":  "qwen3:14b",                    # Code tasks, ~9 GB (swapped from qwen2.5-coder:14b 2026-06-11)
-    # ── Fast fallback  (≤6 GB) ──────────────────────────────────────────
-    "fast":         "deepseek-r1:8b",               # 5 GB, very quick
+    "xl_quality":   "gemma4:26b-a4b-it-q4_K_M",     # MoE a4b (~17 GB) — default, fast
+    "xl_reason":    "qwen3.6:35b",                  # MoE a3b (~22 GB) — stronger reasoning, replaces nemotron3
 }
 
-# Page-count → primary model mapping
+# Page-count → primary model mapping (2-way split across the two active models)
 TIER_BY_PAGES: List[Tuple[int, str]] = [
-    (8,   "fast"),          # tiny paper / abstract
-    (18,  "single"),        # short paper
-    (35,  "xl_quality"),    # standard conference paper
-    (200, "xl_quality"),    # long paper — chunking handles context overflow
-    # >200 pages (books/theses): route to the lighter 14B tier. The 30B model
-    # with a near-max context overflows VRAM → CPU fallback (~12-core grind,
-    # 25+ min/section); the smaller model keeps its KV cache resident on-GPU.
-    (999, "single"),        # very large book → lighter model, stays GPU-resident
+    (35,  "xl_quality"),    # short-to-standard paper — fast, lighter model
+    (200, "xl_reason"),     # long paper — chunked context benefits from stronger reasoning
+    # >200 pages (books/theses): route back to the lighter model. This
+    # threshold and the fallback rationale were originally tuned around
+    # nemotron3:33b's specific VRAM/context overflow behavior (near-max
+    # context spilling to CPU, ~12-core grind, 25+ min/section) and have NOT
+    # yet been re-measured for qwen3.6:35b. The general principle — route
+    # huge books back to the always-GPU-resident lighter model rather than
+    # risk CPU-offload thrash on the heavier tier — is sound regardless of
+    # which model sits in xl_reason, but the exact 200-page cutoff is
+    # inherited, not re-validated. Re-check with a real >200-page PDF and
+    # `curl -s localhost:11434/api/ps` before trusting this boundary at scale.
+    (999, "xl_quality"),    # very large book → lighter model, stays GPU-resident
 ]
 
-# Model for the C++ section. Reuse the xl_quality prose model (gemma4) rather
-# than a separate code-specialised model: for the common case (standard papers,
-# where gemma4 is already the prose model) this keeps a SINGLE model resident,
-# so the C++ section runs on the warm, fully-VRAM-resident model with no second
-# load — no eviction, no CPU-offloaded layers, no VRAM churn. gemma4:26b handles
-# code well enough for the extracted C++ examples. (Was qwen3:14b; before that
-# qwen2.5-coder:14b. The separate-coder approach forced a 2nd model into ~26 GB
-# total VRAM, OOM-ing the runner until capped via num_gpu — now moot.)
+# Fallback/suggested code model, used only as the interactive -c picker's
+# default cursor position and pre-flight-check target when --code-model is
+# explicitly passed. It is NOT used as a silent per-paper default any more —
+# see PaperProcessor.process(): each paper's C++ section now reuses whichever
+# model that paper already selected (by page-count tier or --model), so a
+# paper never switches models mid-run. Confirmed 2026-08-12 (see claude_creations
+# var-crash-investigation session): silently defaulting code_model to a fixed
+# constant caused two extra evict/reload cycles per paper whenever the paper's
+# tier model differed from this constant (e.g. every 36-200 page paper routed
+# to the xl_reason model still switched to gemma4 for cpp, then back to
+# xl_reason for diagrams). gemma4:26b handles code well enough when it IS the
+# selected model. (Was qwen3:14b; before that qwen2.5-coder:14b — the
+# separate-coder approach forced a 2nd model into ~26 GB total VRAM, OOM-ing
+# the runner until capped via num_gpu — now moot.) xl_reason itself was
+# nemotron3:33b through 2026-08-14, swapped to qwen3.6:35b on 2026-08-15
+# after benchmark comparison showed nemotron3-nano underperforming gemma4
+# on MMLU-Pro/GPQA/LiveCodeBench — qwen3.6:35b beats both models on those axes.
 CODE_MODEL = MODEL_TIERS["xl_quality"]
 
 # Per-model GPU layer caps (Ollama options.num_gpu) for any model that should be
-# bounded when co-resident with a larger one. Empty by default: with prose and
-# code sharing one model there is no second model to cap. Add an entry
-# {"<model>": <n_layers>} to force a smaller GPU footprint (0 = pure CPU).
+# bounded when co-resident with a larger one, or just to relieve VRAM pressure.
+# Add an entry {"<model>": <n_layers>} to force a smaller GPU footprint
+# (0 = pure CPU). With unset num_gpu, Ollama auto-fills VRAM before spilling
+# to CPU. Verify with `curl -s localhost:11434/api/ps` (size vs size_vram)
+# and `nvidia-smi` after a real load before assuming this stays empty forever.
+#
+# 2026-08-15: measured via Ollama's own load log — qwen3.6:35b (Q4_K_M,
+# 21.45 GiB file) offloaded 42/42 layers to GPU with ZERO CPU spillover
+# (272.81 MiB on CUDA_Host is rounding noise, not a real offload). Confirmed
+# fit: 22,108 MiB projected device usage against 24,615 MiB free on the
+# current RTX 5080 + RTX 3080 pool, ~2.4 GB headroom, fit computed in 0.52s.
+# No cap needed — better GPU residency than nemotron3:33b ever achieved
+# (which needed a manual 32-layer cap to reach only ~82%). Leave empty
+# unless a future quant or context-length change pushes it past the pool.
+#
+# 2026-08-19, dellt3600 dev box (Quadro P4000 8GB + GTX 1060 6GB, ~13.7GB
+# free combined — NOT the RTX 5080/3080 box above): tried forcing
+# gpt-oss:20b (24 layers, ~13.2GB file) fully onto GPU here via num_gpu=24
+# since neither production tier model fits this box and gpt-oss:20b was
+# picked as the --model override. Do NOT add an entry for it — tested and
+# reverted:
+#   - Ollama's own auto-fit at this pipeline's real num_ctx=32768 put only
+#     68.6% of weights on GPU (size_vram 9.15GB / size 13.34GB) and left it
+#     catastrophically slow — a single "hi" prompt didn't finish inside a
+#     300s timeout (gpt-oss is MoE; CPU-offloaded expert routing is far
+#     worse than a dense model's CPU spillover).
+#   - Forcing num_gpu=24 at Ollama's default num_ctx=4096 (NOT this
+#     pipeline's real context) did reach 88% residency and ran fast
+#     (~31 tok/s), but at the pipeline's actual num_ctx=32768 the same
+#     num_gpu=24 hard-crashes: cudaMalloc failed: out of memory allocating
+#     the KV-cache buffer. The ~13.2GB weight file leaves under 500MB of
+#     headroom in the ~13.7GB pool — not enough for a 32K-context KV cache
+#     on top of full weight residency, so num_gpu=24 is unsafe as a
+#     standing config for real runs on this box.
+#   - This is a hardware VRAM ceiling, not a config problem: at this
+#     pipeline's real context length, gpt-oss:20b cannot be made both fully
+#     GPU-resident and fast on this specific 14GB two-card pool. A smaller
+#     num_ctx (would need pipeline-level per-model context support, not
+#     just this dict) or a smaller model are the only ways out, not a
+#     bigger num_gpu.
 MODEL_GPU_LAYERS = {}
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 # Curated list of known-good models for the interactive selector (-s flag).
-# Ordered by preference: best/largest first, fast fallback last.
+# Restricted to just the two active models for now (2026-08-06; xl_reason
+# swapped nemotron3:33b → qwen3.6:35b on 2026-08-15 — see MODEL_TIERS comment).
+# VRAM figures: gemma4 estimated, qwen3.6 confirmed via load log (21.45 GiB
+# file, ~21.6 GB / 22,108 MiB actual device usage, 2026-08-15).
 # (model_name, vram_label, role_label, is_default)
 KNOWN_GOOD_MODELS: List[tuple] = [
     ("gemma4:26b-a4b-it-q4_K_M",           "~17 GB", "xl_quality — current default",    True),
-    ("nemotron-3-nano-30b-small:latest",   "~24 GB", "xl_quality — text-only alt",      False),
-    ("deepseek-r1:32b",                    "~19 GB", "xl_reason — chain-of-thought",    False),
-    ("deepseek-r1:14b-qwen-distill-q8_0", "~15 GB", "mid_reason — Q8 fidelity",        False),
-    ("devstral:24b",                       "~14 GB", "mid_code — code + text",          False),
-    ("qwen3.6:35b",                        "~23 GB", "xl — strong general reasoning",   False),
-    ("deepseek-r1:14b",                    "~9 GB",  "single — reliable, 9 GB",         False),
-    ("gpt-oss:20b",                        "~13 GB", "text-only alternative",           False),
-    ("deepseek-r1:8b",                     "~5 GB",  "fast — quick fallback",           False),
+    ("qwen3.6:35b",                        "~21.6 GB", "xl_reason — chain-of-thought",  False),
 ]
 
 # Curated code-specialist models for the C++ section selector (-c flag).
+# Restricted to just the two active models for now (2026-08-06); gemma4
+# remains the default per CODE_MODEL below.
 KNOWN_GOOD_CODE_MODELS: List[tuple] = [
-    ("qwen3-coder:30b",              "~18 GB", "xl_code — current default, best C++",  True),
-    ("devstral:24b",                 "~14 GB", "mid_code — strong code, lower VRAM",   False),
-    ("qwen2.5-coder:14b-base-q6_K", "~12 GB", "single — Q6 fidelity",                False),
-    ("qwen2.5-coder:14b",           "~9 GB",  "single — reliable, single-GPU",        False),
-    ("deepseek-coder-v2:16b",       "~9 GB",  "single — fast alternative",            False),
-    ("qwen2.5-coder:7b",            "~5 GB",  "fast — quick fallback",                False),
+    ("gemma4:26b-a4b-it-q4_K_M", "~17 GB", "xl_quality — current default, reused prose model", True),
+    ("qwen3.6:35b",              "~21.6 GB", "xl_reason — chain-of-thought alt",               False),
 ]
 
 
@@ -200,6 +273,32 @@ def _ollama_wait_clean(timeout: int = 30, interval: float = 2.0) -> bool:
             return True
         time.sleep(interval)
     return False
+
+
+# gemma4 (~17 GB, uncapped, 100% GPU) and qwen3.6:35b (confirmed 2026-08-15
+# via Ollama's own load log: 21.45 GiB file, ~21.6 GB / 22,108 MiB projected
+# device usage, 42/42 layers on GPU, zero real CPU spillover) together need
+# ~38.6 GB — still well past the current ~25.7 GB combined pool (RTX 5080 +
+# RTX 3080, ~24.6 GB observed free), even after the GPU upgrade from the
+# prior RTX 3080/RTX 3060 pair. The two models structurally cannot coexist
+# in VRAM at the same time regardless of which specific hardware pair is
+# installed — only the margin changed, not the conclusion.
+# Confirmed 2026-08-12 (see claude_creations var-crash-investigation
+# session): every tier switch was previously left to Ollama's own
+# fail-then-evict-all-and-retry fallback, which works but does so via a
+# noisy burst of failed cudaMalloc allocations (and, historically, a
+# multi-GB core dump) on every single switch. Evict the outgoing tier's
+# model proactively instead, so the incoming model's first load attempt
+# actually has room and never needs to fail first.
+INCOMPATIBLE_MODELS = set(MODEL_TIERS.values())
+
+
+def _ensure_model_exclusive(model: str) -> None:
+    """Evict any other large-tier model before switching to `model`."""
+    for loaded in _ollama_get_loaded():
+        if loaded != model and loaded in INCOMPATIBLE_MODELS:
+            print(f"     🔁  Evicting {loaded} to make room for {model} …")
+            _ollama_evict(loaded)
 
 
 def _ollama_restart_service() -> bool:
@@ -381,15 +480,22 @@ DIAGRAM_PROMPT = textwrap.dedent("""\
       Diagram 6 — Comparison vs Prior Art (or Ablation Structure)
 
     ══ MANDATORY VISUAL STYLE (apply to EVERY diagram) ══
-      graph-level:  bgcolor="black"
-      node default: style=filled, fillcolor="#0a0a0a", fontname="Courier New", fontsize=11
+    Include these exact two statements, verbatim, as the first two lines inside
+    every "digraph G {" body (this is real DOT syntax — copy it exactly,
+    do not paraphrase or restructure it):
+      bgcolor="black";
+      node [style=filled, fillcolor="#0a0a0a", fontname="Courier New", fontsize=11];
+
       Use NEON accent colours for borders, labels, and edges. Pick from:
         Electric Green  #00FF41    Hot Magenta  #FF00FF    Cyan      #00FFFF
         Neon Orange     #FF6600    Volt Yellow  #FFFF00    Hot Pink  #FF0055
         Chartreuse      #7FFF00    Electric Blue #0080FF   Lavender  #DA70FF
       Edges: penwidth=2.0, use neon colours (vary per diagram)
-      Graph titles: use label= and labelloc=t with a bright fontcolor
+      Graph titles: set label="..." and labelloc=t and a bright fontcolor="..."
+        as attributes of the digraph itself (not inside a subgraph/cluster).
       Mix rankdir=LR and rankdir=TB between diagrams for variety.
+      Every line must be valid, renderable Graphviz DOT syntax — no
+      pseudo-syntax, no descriptive labels standing in for real statements.
 
     ══ OUTPUT FORMAT — strictly follow this delimiter pattern ══
     ===DIAGRAM_START: <Descriptive Title for Diagram N>===
@@ -430,6 +536,12 @@ class Metadata:
 
 ALL_SECTIONS = {"summary", "logic", "cpp", "diagrams", "extras"}
 
+# Cross-process claim timeout for concurrent workers (e.g. one instance per
+# GPU) sharing the same papers_dir/_processed tree. A lock older than this is
+# assumed to be from a crashed worker, not a paper that's legitimately still
+# running, and gets reclaimed.
+STALE_LOCK_SECONDS = 4 * 3600
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BACKEND  (Ollama direct API  or  OpenClaw agent CLI)
@@ -442,23 +554,26 @@ class Backend:
                (model selection via OPENCLAW_MODEL env var or pre-configured gateway)
     """
 
-    def __init__(self, name: str, default_model: str):
-        self.name          = name
-        self.default_model = default_model
+    def __init__(self, name: str, default_model: str, default_ctx_tokens: int = 32768):
+        self.name               = name
+        self.default_model      = default_model
+        self.default_ctx_tokens = default_ctx_tokens
 
     def call(
         self,
         prompt: str,
         model: Optional[str] = None,
-        ctx_tokens: int = 32768,
+        ctx_tokens: Optional[int] = None,
     ) -> str:
         m = model or self.default_model
+        ctx = ctx_tokens if ctx_tokens is not None else self.default_ctx_tokens
         if self.name == "ollama":
-            return self._call_ollama(prompt, m, ctx_tokens)
+            return self._call_ollama(prompt, m, ctx)
         return self._call_openclaw(prompt, m)
 
     # ── Ollama ────────────────────────────────────────────────────────────
     def _call_ollama(self, prompt: str, model: str, ctx: int) -> str:
+        _ensure_model_exclusive(model)
         url = f"{OLLAMA_URL}/api/generate"
         options = {
             "num_ctx":        ctx,
@@ -590,6 +705,44 @@ def select_model(page_count: int, user_override: Optional[str]) -> str:
         if page_count <= threshold:
             return MODEL_TIERS[tier_key]
     return MODEL_TIERS["xl_quality"]
+
+
+def _quick_page_count(pdf: Path) -> int:
+    """Cheap page count via PyMuPDF metadata — no text extraction, no OCR.
+    Used only for batch tier-sorting; extract_pages_with_ocr() remains the
+    source of truth for the actual page_count used in processing/model
+    selection. Returns 0 on any failure (unreadable/corrupt PDF), which
+    sorts it into the largest-page tier bucket — harmless, since the real
+    extraction pass will raise/handle the error properly when it runs.
+    """
+    try:
+        with fitz.open(pdf) as doc:
+            return doc.page_count
+    except Exception:
+        return 0
+
+
+def _estimate_sort_cost(
+    pdfs: List[Path], sample_size: int = SORT_PROBE_SAMPLE_SIZE
+) -> Tuple[float, dict]:
+    """Time a sample of _quick_page_count() calls and extrapolate total cost.
+
+    Used by --sort-batch=auto to decide whether tier-sorting a large batch is
+    worth its own pre-scan time. Returns (estimated_total_seconds, cache),
+    where cache maps the sampled Path objects to their already-probed page
+    counts so the caller can reuse them instead of reopening those files
+    during the actual sort.
+    """
+    if not pdfs:
+        return 0.0, {}
+    sample = pdfs[: min(sample_size, len(pdfs))]
+    cache: dict = {}
+    start = time.monotonic()
+    for p in sample:
+        cache[p] = _quick_page_count(p)
+    elapsed = time.monotonic() - start
+    per_file = elapsed / len(sample) if sample else 0.0
+    return per_file * len(pdfs), cache
 
 
 def list_ollama_models() -> List[Tuple[str, str]]:
@@ -939,6 +1092,24 @@ class PaperProcessor:
             print(f"  ⏭   {pdf_path.name}  (all sections complete)")
             return
 
+        # Cross-process claim so two concurrent workers (e.g. one per GPU,
+        # both scanning the same papers_dir) never both pick up this paper.
+        lock_path = paper_dir / ".processing.lock"
+        try:
+            lock_path.touch(exist_ok=False)
+        except FileExistsError:
+            age = time.time() - lock_path.stat().st_mtime
+            if age < STALE_LOCK_SECONDS:
+                print(f"  🔒  {pdf_path.name}  (claimed by another worker {age:.0f}s ago — skipping)")
+                return
+            print(f"  ⚠️   {pdf_path.name}  (stale lock {age/3600:.1f}h old — reclaiming)")
+
+        try:
+            self._process_locked(pdf_path, paper_dir, meta_path, meta)
+        finally:
+            lock_path.unlink(missing_ok=True)
+
+    def _process_locked(self, pdf_path: Path, paper_dir: Path, meta_path: Path, meta) -> None:
         print(f"\n{'─'*64}")
         print(f"  📄  {pdf_path.name}")
 
@@ -957,7 +1128,9 @@ class PaperProcessor:
         )
         page_count = len(pages)
         model      = select_model(page_count, self.forced_model)
-        code_model = self.forced_code_model or self.forced_model or CODE_MODEL
+        # Default to the model already selected for this paper — no mid-paper
+        # switching — unless the user explicitly asked for a different code model.
+        code_model = self.forced_code_model or model
 
         chunks     = build_chunks(pages)
         strategy   = (
@@ -1059,7 +1232,6 @@ class PaperProcessor:
                 raw = self.backend.call(
                     self._tag_prompt(DIAGRAM_PROMPT, capped[:30_000]),
                     model,
-                    ctx_tokens=32768,
                 )
             except _ShutdownRequested:
                 _checkpoint()
@@ -1208,6 +1380,33 @@ def health_check_openclaw():
         return False
 
 
+def _print_dashboard_status():
+    """Best-effort, non-blocking heads-up that the Neo4j graph dashboards exist.
+    Purely informational — never raises, never blocks a run if a port probe hangs."""
+    import socket
+    import subprocess as _sp
+
+    def port_open(port):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.3)
+                return s.connect_ex(("localhost", port)) == 0
+        except Exception:
+            return False
+
+    try:
+        cosmos_active = _sp.run(
+            ["systemctl", "is-active", "cosmos-dashboard"],
+            capture_output=True, text=True, timeout=1,
+        ).stdout.strip() == "active"
+    except Exception:
+        cosmos_active = port_open(8686)
+
+    webgl_state = "up (:8585)" if port_open(8585) else "not running — see vram_wizard.py"
+    cosmos_state = "up (:8686, systemd)" if cosmos_active else "not running — sudo systemctl start cosmos-dashboard"
+    print(f"  Dashboards: webgl.html {webgl_state}  |  CosmosGL {cosmos_state}")
+
+
 def _sync_to_neo4j(processed_dir: Optional[str] = None):
     """Checks if Neo4j is listening on Port 7687 and runs the importer script to auto-sync."""
     if not _sync_lock.acquire(blocking=False):
@@ -1222,12 +1421,21 @@ def _sync_to_neo4j(processed_dir: Optional[str] = None):
                 cmd = [sys.executable, "neo4j_viz/neo4j_importer.py"]
                 if processed_dir:
                     cmd.append(processed_dir)
-                subprocess.run(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                print("  ✅ Neo4j database sync complete!")
+                try:
+                    subprocess.run(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=120,
+                    )
+                    print("  ✅ Neo4j database sync complete!")
+                except subprocess.TimeoutExpired:
+                    # A pooled bolt connection Neo4j closed server-side (idle timeout)
+                    # can leave the importer blocked on a dead socket read with no
+                    # bound — subprocess.run has no default timeout, so this used to
+                    # hang the whole pipeline forever. Kill it and let the next
+                    # periodic sync cycle pick up the backlog instead.
+                    print("  ⚠️  Neo4j sync timed out after 120s (stale connection?) — skipped, will retry next cycle")
     except Exception:
         pass
     finally:
@@ -1252,6 +1460,108 @@ def _periodic_sync_worker(processed_dir: Optional[str] = None, interval: int = 3
             time.sleep(1)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PERSISTED TARGET DIRECTORY DEFAULT
+# ══════════════════════════════════════════════════════════════════════════════
+DEFAULT_PAPERS_DIR = Path.home() / "Documents" / "AI-ML_Papers"
+CONFIG_ENV_VAR = "PAPER_PROCESSOR_CONFIG"
+
+
+def _config_path() -> Path:
+    """Return the per-user config path used to remember CLI defaults."""
+    override = os.environ.get(CONFIG_ENV_VAR)
+    if override:
+        return Path(os.path.expandvars(override)).expanduser()
+
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(os.path.expandvars(xdg_config)).expanduser() if xdg_config else Path.home() / ".config"
+    return base / "openclaw-paper-processor" / "config.json"
+
+
+def _load_config() -> dict:
+    path = _config_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        print(f"  ⚠️   Could not read config {path}: {exc}", file=sys.stderr)
+        return {}
+
+
+def _save_config(data: dict) -> None:
+    path = _config_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        print(f"  ⚠️   Could not save config {path}: {exc}", file=sys.stderr)
+
+
+def _normalise_dir(raw: str) -> Path:
+    """Expand ~ and environment variables but preserve the user's chosen path."""
+    return Path(os.path.expandvars(raw)).expanduser()
+
+
+def _load_default_papers_dir() -> Path:
+    raw = _load_config().get("papers_dir")
+    if isinstance(raw, str) and raw.strip():
+        return _normalise_dir(raw)
+    return DEFAULT_PAPERS_DIR
+
+
+def _save_default_papers_dir(path: Path) -> None:
+    data = _load_config()
+    data["papers_dir"] = str(path)
+    data["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _save_config(data)
+
+
+def resolve_papers_dir(cli_value: Optional[str]) -> Path:
+    """
+    Resolve the target PDF directory.
+
+    Priority:
+      1. Explicit positional CLI argument — no prompt, no config mutation.
+      2. Interactive terminal — prompt with saved default; persist a newly typed value.
+      3. Non-interactive run — use saved default, falling back to ~/Documents/AI-ML_Papers.
+    """
+    if cli_value:
+        return _normalise_dir(cli_value)
+
+    default_dir = _load_default_papers_dir()
+
+    if not sys.stdin.isatty():
+        return default_dir
+
+    print("\n  Target PDF directory")
+    print(f"  Saved default: {default_dir}")
+
+    while True:
+        try:
+            raw = input("  Directory to process [Enter = saved default]: ").strip()
+        except EOFError:
+            return default_dir
+
+        selected = default_dir if not raw else _normalise_dir(raw)
+        if selected.exists() and selected.is_dir():
+            if raw:
+                _save_default_papers_dir(selected)
+                print(f"  💾  Saved default target directory → {selected}")
+            return selected
+
+        print(f"  ❌  Directory not found: {selected}")
+        try:
+            again = input("  Enter another directory? [Y/n]: ").strip().lower()
+        except EOFError:
+            sys.exit(f"❌  Directory not found: {selected}")
+        if again in {"n", "no"}:
+            sys.exit(f"❌  Directory not found: {selected}")
+
+
 def main():
     ap = argparse.ArgumentParser(
         prog="paper_processor",
@@ -1270,20 +1580,26 @@ def main():
                   01_<title>.svg
                   …  (6+ diagrams)
 
-            Model auto-selection by page count (use -s to pick interactively):
-              ≤ 8  pages  →  deepseek-r1:8b      (~5 GB)
-              ≤ 18 pages  →  deepseek-r1:14b     (~9 GB)
-              > 18 pages  →  gemma4:26b-a4b-it-q4_K_M (~17 GB, dual-GPU)
-              C++ section →  same as prose model  (gemma4 for ≥35-page papers)
+            Model auto-selection by page count (use -s to pick interactively).
+            Restricted to two active models for now (2026-08-06; xl_reason
+            swapped nemotron3:33b → qwen3.6:35b on 2026-08-15):
+              ≤ 35  pages  →  gemma4:26b-a4b-it-q4_K_M (~17 GB, fast/lighter)
+              36–200 pages →  qwen3.6:35b              (~22 GB, strong reasoning)
+              > 200 pages  →  gemma4:26b-a4b-it-q4_K_M (falls back, stays GPU-resident)
+              C++ section  →  same model as the rest of that paper (no mid-paper
+                              switch); override with --code-model / -c
               -s / --select-model  →  scrollable curses list of ALL local Ollama
                                       models (↑/↓ + Enter; falls back to a
                                       numbered known-good menu without a TTY)
         """),
     )
     ap.add_argument(
-        "papers_dir", nargs="?",
-        default=os.path.join(os.path.expanduser("~"), "Documents", "AI-ML_Papers"),
-        help="Directory containing PDF papers (default: ~/Documents/AI-ML_Papers)",
+        "papers_dir", nargs="?", default=None,
+        help=(
+            "Directory containing PDF papers. If omitted, an interactive terminal "
+            "prompts for it and remembers newly entered values as the next default "
+            "(fallback: ~/Documents/AI-ML_Papers)."
+        ),
     )
     ap.add_argument(
         "--backend", choices=["ollama", "openclaw"], default="ollama",
@@ -1324,16 +1640,42 @@ def main():
         help="Extra debug output",
     )
     ap.add_argument(
+        "--ctx-tokens", type=int, default=32768,
+        metavar="N",
+        help="Ollama num_ctx for prose/logic/cpp/diagrams/extras calls "
+             "(the map-reduce chunk-summary step keeps its own smaller 16384 "
+             "regardless). Lower this to fit small-VRAM boxes: prompts are "
+             "capped at 45k chars (~11-12k tokens) so 16384 is comfortable "
+             "for most papers; the 6-diagram section is the biggest consumer "
+             "and may need more. [default: 32768]",
+    )
+    ap.add_argument(
         "--select-model", "-s", action="store_true",
         help="Interactively choose the model (scrollable TUI over all local Ollama models) before processing (overrides auto-selection by page count)",
     )
     ap.add_argument(
         "--code-model", default=None, metavar="MODEL",
-        help="Force a specific model for C++ sections only (overrides CODE_MODEL default)",
+        help="Force a specific model for C++ sections only (overrides the default of "
+             "reusing that paper's already-selected model)",
     )
     ap.add_argument(
         "--select-code-model", "-c", action="store_true",
         help="Interactively choose the C++ section model before processing",
+    )
+    ap.add_argument(
+        "--sort-batch", choices=["auto", "always", "never"], default="auto",
+        metavar="MODE",
+        help="Tier-sort the batch before processing to cut GPU model swaps: "
+             "'auto' (default) estimates scan cost from a sample and skips/prompts "
+             "if it exceeds --sort-budget-seconds; 'always' forces a full scan "
+             "regardless of size; 'never' disables sorting entirely.",
+    )
+    ap.add_argument(
+        "--sort-budget-seconds", type=float, default=SORT_PROBE_BUDGET_SECONDS,
+        metavar="SEC",
+        help=f"In --sort-batch=auto mode, the estimated scan-time threshold above "
+             f"which sorting is skipped (or the user is prompted at a TTY) "
+             f"[default: {SORT_PROBE_BUDGET_SECONDS}]",
     )
     ap.add_argument(
         "--ocr", choices=["auto", "always", "never"], default="auto", metavar="MODE",
@@ -1364,8 +1706,8 @@ def main():
     if args.workers < 1:
         ap.error("--workers must be >= 1")
 
-    papers_dir = Path(args.papers_dir)
-    if not papers_dir.exists():
+    papers_dir = resolve_papers_dir(args.papers_dir)
+    if not papers_dir.exists() or not papers_dir.is_dir():
         sys.exit(f"❌  Directory not found: {papers_dir}")
 
     # ── List mode ──────────────────────────────────────────────────────────
@@ -1386,10 +1728,10 @@ def main():
         models_to_check = (
             [args.model]
             if args.model
-            else list(dict.fromkeys(
-                [MODEL_TIERS[k] for _, k in TIER_BY_PAGES] + [CODE_MODEL]
-            ))
+            else list(dict.fromkeys([MODEL_TIERS[k] for _, k in TIER_BY_PAGES]))
         )
+        if args.code_model:
+            models_to_check = list(dict.fromkeys(models_to_check + [args.code_model]))
         check_required_models(models_to_check)
 
     if args.override and args.backend == "ollama":
@@ -1421,9 +1763,10 @@ def main():
             print("[warn] --select-code-model ignored (stdin is not a TTY)", file=sys.stderr)
 
     default_model = args.model or MODEL_TIERS["xl_quality"]
-    backend       = Backend(args.backend, default_model)
+    backend       = Backend(args.backend, default_model, default_ctx_tokens=args.ctx_tokens)
 
     print(f"  Backend   : {args.backend}")
+    print(f"  Directory : {papers_dir}")
     print(f"  Default   : {default_model}")
     if args.reprocess:
         print(f"  Reprocess : {args.reprocess}")
@@ -1451,8 +1794,63 @@ def main():
         if not pdfs:
             sys.exit(f"❌  No PDF files found in {papers_dir}")
 
+        # Group papers by tier so we don't ping-pong-evict nemotron/gemma
+        # between adjacent papers that happen to straddle a page-count
+        # threshold. Only meaningful for serial processing with auto
+        # model-selection — a forced --model has nothing to sort by, and
+        # --workers > 1 processes tiers concurrently anyway (VRAM permitting),
+        # so submission order there doesn't drive eviction the same way.
+        #
+        # The sort itself requires probing every PDF's page count first
+        # (_quick_page_count), which is normally milliseconds per file but
+        # can add up to real wall-clock time on very large batches (thousands
+        # of PDFs) or slow storage (network mounts, huge scanned books).
+        # --sort-batch=auto (default) times a small sample and extrapolates;
+        # if the estimate exceeds --sort-budget-seconds it skips (or prompts,
+        # at a TTY) rather than silently stalling startup.
+        do_sort = False
+        page_count_cache: dict = {}
+        if (
+            not args.model
+            and args.workers == 1
+            and len(pdfs) > 1
+            and args.sort_batch != "never"
+        ):
+            if args.sort_batch == "always":
+                do_sort = True
+            else:  # auto
+                est_seconds, page_count_cache = _estimate_sort_cost(pdfs)
+                if est_seconds <= args.sort_budget_seconds:
+                    do_sort = True
+                elif sys.stdin.isatty():
+                    print(
+                        f"  ⏱   Tier-sorting {len(pdfs)} papers is estimated at "
+                        f"~{est_seconds:.1f}s (budget: {args.sort_budget_seconds:.1f}s)."
+                    )
+                    ans = input("      Sort anyway? [y/N]: ").strip().lower()
+                    do_sort = ans in ("y", "yes")
+                else:
+                    print(
+                        f"  ⚠️   Skipping tier-sort — estimated {est_seconds:.1f}s "
+                        f"exceeds {args.sort_budget_seconds:.1f}s budget for "
+                        f"{len(pdfs)} papers (non-interactive; use "
+                        f"--sort-batch always to force, or raise --sort-budget-seconds)."
+                    )
+
+        if do_sort:
+            print("  🔀  Sorting batch by model tier to minimise GPU swaps …")
+
+            def _tier_key(p: Path) -> str:
+                pc = page_count_cache.get(p)
+                if pc is None:
+                    pc = _quick_page_count(p)
+                return select_model(pc, None)
+
+            pdfs.sort(key=_tier_key)
+
     print(f"  Papers    : {len(pdfs)}")
     print(f"  Output    : {papers_dir / '_processed'}")
+    _print_dashboard_status()
     print()
 
     processor = PaperProcessor(

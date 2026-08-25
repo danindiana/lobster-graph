@@ -7,6 +7,7 @@
 import os
 import re
 import json
+import time
 from pathlib import Path
 from neo4j import GraphDatabase
 
@@ -130,14 +131,27 @@ def main():
     if len(sys.argv) > 1:
         PROCESSED_DIR = Path(sys.argv[1])
     print(f"🔗 Connecting to Neo4j at {NEO4J_URI}...")
-    try:
-        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-        # Verify connection
-        driver.verify_connectivity()
-        print("✅ Connected to Neo4j successfully!")
-    except Exception as e:
-        print(f"❌ Failed to connect to Neo4j: {e}")
-        return
+    driver = None
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+            driver.verify_connectivity()
+            print("✅ Connected to Neo4j successfully!")
+            break
+        except Exception as e:
+            if driver is not None:
+                driver.close()
+                driver = None
+            if attempt == max_attempts:
+                print(f"❌ Failed to connect to Neo4j after {max_attempts} attempts: {e}")
+                return
+            # The host machine is often CPU-starved by concurrent LLM inference at the
+            # moment this subprocess is spawned, which can push the driver's handshake
+            # past Neo4j's 30s auth timeout on the first try. Back off and retry.
+            wait = 2 ** attempt
+            print(f"⚠️  Connect attempt {attempt}/{max_attempts} failed ({e}); retrying in {wait}s...")
+            time.sleep(wait)
 
     # Remove the full database drop so background syncs don't cause sudden disconnects/blank screens
     print("🔄 Ensuring database graph is ready...")
@@ -148,17 +162,33 @@ def main():
         driver.close()
         return
 
+    # Fetch every already-synced Paper's hash in ONE query, so unchanged
+    # papers can be skipped without redoing their (many-round-trip) Cypher
+    # work. Without this, a full re-scan of a large corpus (thousands of
+    # papers, each requiring several separate driver.session() calls below)
+    # takes far longer than any reasonable sync-call timeout — measured at
+    # >1 hour for ~2300 papers on this project's reference hardware, which
+    # silently made every periodic sync a no-op past that corpus size. See
+    # speculative-paper-proc's docs/FINDINGS.md for how this was found.
+    already_synced = {}
+    try:
+        with driver.session() as session:
+            for rec in session.run("MATCH (p:Paper) WHERE p.paper_hash IS NOT NULL RETURN p.name AS name, p.paper_hash AS hash"):
+                already_synced[rec["name"]] = rec["hash"]
+        print(f"⚡ {len(already_synced)} papers already synced (will skip unchanged ones)")
+    except Exception as e:
+        print(f"  ⚠️ Could not pre-fetch synced hashes, will re-sync everything: {e}")
+
+    skipped = 0
     # Walk through each processed subfolder
     for path in PROCESSED_DIR.iterdir():
         if not path.is_dir() or path.name.startswith("_"):
             continue
-            
+
         meta_file = path / "metadata.json"
         if not meta_file.exists():
             continue
-            
-        print(f"\n📂 Processing paper folder: {path.name}...")
-        
+
         # 1. Metadata
         try:
             with open(meta_file, "r") as f:
@@ -166,13 +196,19 @@ def main():
         except Exception as e:
             print(f"  ⚠️ Error reading metadata: {e}")
             continue
-            
+
         paper_name = meta.get("paper_name", path.name)
         pdf_path = meta.get("pdf_path", "")
         page_count = meta.get("page_count", 0)
         chunk_strategy = meta.get("chunk_strategy", "")
         processed_at = meta.get("processed_at", "")
         paper_hash = meta.get("paper_hash", "")
+
+        if paper_hash and already_synced.get(paper_name) == paper_hash:
+            skipped += 1
+            continue
+
+        print(f"\n📂 Processing paper folder: {path.name}...")
         
         # Initialize default properties
         motivation = ""
@@ -353,6 +389,7 @@ def main():
             MERGE (code)-[:IMPLEMENTS]->(c)
         """)
 
+    print(f"⚡ Skipped {skipped} unchanged paper(s) (matching paper_hash already in graph)")
     print("🎉 Graph database load complete!")
     driver.close()
 

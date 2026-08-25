@@ -39,7 +39,7 @@ from typing import List, Optional, Tuple
 
 # ── Third-party imports ────────────────────────────────────────────────────
 try:
-    import fitz  # noqa: F401  (availability probe; OCR/extraction uses it via ocr_fallback)
+    import pymupdf  # noqa: F401  (availability probe; OCR/extraction uses it via ocr_fallback)
 except ImportError:
     sys.exit("❌  pymupdf not installed.\n    Fix: pip install pymupdf --break-system-packages")
 

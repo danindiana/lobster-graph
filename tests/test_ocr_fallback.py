@@ -47,13 +47,23 @@ def text_pdf(tmp_path) -> Path:
 @pytest.fixture
 def scanned_pdf(tmp_path) -> Path:
     """A PDF whose only content is a rasterised image of text (no text layer)."""
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFont
+
+    # PIL's default bitmap font renders at ~10px and OCRs unreliably (e.g.
+    # "Attention" -> "Atte ntion"). Use a real scalable font at a legible
+    # size so Tesseract has something realistic to read.
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28
+        )
+    except OSError:
+        font = ImageFont.load_default()
 
     img = Image.new("RGB", (1240, 600), "white")
     d = ImageDraw.Draw(img)
     y = 40
     for line in SAMPLE_LINES:
-        d.text((60, y), line, fill="black")
+        d.text((60, y), line, fill="black", font=font)
         y += 80
     png = tmp_path / "_page.png"
     img.save(str(png))
