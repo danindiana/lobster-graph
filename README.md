@@ -80,6 +80,11 @@ Since `@cosmos.gl/graph` has no native double-click event, the frontend detects 
 `cosmos-dashboard.service` runs the dashboard under systemd (`Restart=always`, boots after `paper-processor-neo4j.service`) instead of being started by hand. Its start/stop lifecycle broadcasts a `wall` message to every open terminal, `/etc/update-motd.d/96-cosmosgl-status` shows live status on every login, and both `vram_wizard.py` and `paper_processor_dir.py` print a status line so the dashboard is never a silent surprise. See `docs/ARCHITECTURE.md` → "CosmosGL Dashboard" for the full unit file and rationale.
 ![CosmosGL systemd, wall, motd, and entry-point notices](docs/diagrams/12_cosmosgl_systemd_notifications.png)
 
+### 10. Session Archiving
+`session_archive/` extends the same Neo4j graph with `Session` nodes (one per dated `claude_creations` folder) linked to shared `Concept` nodes, plus a FAISS vector index over chunked session text — the vector-search layer the core pipeline doesn't have. `ingest_sessions.py` summarizes each session with a local Ollama model and embeds it with `BAAI/bge-m3`; `query_sessions.py` does the retrieval. See [`session_archive/README.md`](session_archive/README.md) for CLI usage.
+![session archive ingestion pipeline](docs/diagrams/13_session_archive_ingestion.png)
+![session archive query path](docs/diagrams/14_session_archive_query.png)
+
 ---
 
 ## VRAM Residency & Swap Optimization
