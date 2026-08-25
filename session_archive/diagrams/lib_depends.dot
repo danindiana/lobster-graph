@@ -1,0 +1,25 @@
+digraph lib_depends {
+  graph [bgcolor="black" rankdir=LR fontname="Courier New"
+         label="session_archive — library dependency tree"
+         labelloc=t fontcolor="#00FF41" fontsize=16 pad=0.5 nodesep=0.4];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=10 penwidth=2.0 shape=box];
+  edge  [fontname="Courier New" fontsize=9 penwidth=2.0 color="#00FFFF"];
+
+  root [label="session_archive/*.py" shape=box3d color="#00FF41" fontcolor="#00FF41"];
+
+  st  [label="sentence-transformers\n(bge-m3 loader + encode())" color="#FF00FF" fontcolor="#FF00FF"];
+  torch [label="torch (+ CUDA 13.x)\nGPU tensor ops" color="#FF00FF" fontcolor="#FF00FF"];
+  faiss [label="faiss-cpu\nIndexFlatIP" color="#FFFF00" fontcolor="#FFFF00"];
+  neo4jdrv [label="neo4j\nGraphDatabase driver" color="#7FFF00" fontcolor="#7FFF00"];
+  requests [label="requests\nOllama HTTP API" color="#7FFF00" fontcolor="#7FFF00"];
+  rich [label="rich\nlabel_sessions.py UI\n(Console/Panel/Rule)" color="#FF6600" fontcolor="#FF6600"];
+  sklearn [label="scikit-learn\nroc_auc_score only\n(label_sessions.py)" color="#FF6600" fontcolor="#FF6600"];
+  numpy [label="numpy\nvector math throughout" color="#00FFFF" fontcolor="#00FFFF"];
+
+  root -> st; root -> faiss; root -> neo4jdrv; root -> requests; root -> rich; root -> numpy;
+  st -> torch;
+  root -> sklearn [style=dashed label="label_sessions.py\nonly"];
+
+  note [label="All already present in\npaper_processor/.venv —\nno separate venv needed" shape=note color="#00FF41" fontcolor="#00FF41"];
+  root -> note [style=dashed color="#00FF41"];
+}

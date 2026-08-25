@@ -1,0 +1,51 @@
+digraph system_architecture {
+  graph [bgcolor="black" rankdir=TB fontname="Courier New"
+         label="session_archive — component architecture"
+         labelloc=t fontcolor="#00FF41" fontsize=17 pad=0.5 nodesep=0.4 ranksep=0.5];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=10 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=9 penwidth=2.0];
+
+  subgraph cluster_scripts {
+    label="4 scripts, one venv (paper_processor/.venv)"; fontcolor="#00FFFF"; color="#00FFFF"; style=dashed;
+    ingest [label="ingest_sessions.py" color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    query  [label="query_sessions.py" color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    label_ [label="label_sessions.py" color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    probe  [label="relevance_probe.py\n(MLPProbe class, imported\nby query_sessions.py\nand label_sessions.py)" color="#00FFFF" fontcolor="#00FFFF" shape=box3d];
+  }
+
+  subgraph cluster_external {
+    label="External services"; fontcolor="#FF00FF"; color="#FF00FF"; style=dashed;
+    ollama [label="Ollama :11434\nqwen3:14b\n(summary + concepts)" color="#FF00FF" fontcolor="#FF00FF" shape=doubleoctagon];
+    neo4j  [label="paper-processor-neo4j\nbolt :7687" color="#FF00FF" fontcolor="#FF00FF" shape=doubleoctagon];
+    bgem3  [label="BAAI/bge-m3\nsentence-transformers\n~/.cache/huggingface/" color="#FF00FF" fontcolor="#FF00FF" shape=doubleoctagon];
+  }
+
+  subgraph cluster_files {
+    label="Files under /mnt/nvme_staging/session_archive_index/"; fontcolor="#7FFF00"; color="#7FFF00"; style=dashed;
+    idxfile [label="index.faiss" color="#7FFF00" fontcolor="#7FFF00" shape=cylinder];
+    idmap   [label="id_map.json" color="#7FFF00" fontcolor="#7FFF00" shape=note];
+    ingested[label="ingested_sessions.json" color="#7FFF00" fontcolor="#7FFF00" shape=note];
+    labels  [label="relevance_labels.json" color="#7FFF00" fontcolor="#7FFF00" shape=note];
+    probept [label="relevance_probe.pt" color="#7FFF00" fontcolor="#7FFF00" shape=note];
+  }
+
+  ingest -> ollama [color="#FF00FF" label="summary+concepts"];
+  ingest -> bgem3  [color="#FF00FF" label="embed chunks"];
+  ingest -> neo4j  [color="#FF00FF" label="MERGE Session/Concept"];
+  ingest -> idxfile [color="#7FFF00"];
+  ingest -> idmap [color="#7FFF00"];
+  ingest -> ingested [color="#7FFF00"];
+
+  query -> bgem3 [color="#FF00FF" label="embed query text"];
+  query -> idxfile [color="#7FFF00" label="search / reconstruct"];
+  query -> idmap [color="#7FFF00"];
+  query -> neo4j [color="#FF00FF" label="related_concepts()"];
+  query -> probe [color="#00FFFF" label="load, if --rerank"];
+  query -> probept [color="#7FFF00" style=dashed];
+
+  label_ -> idxfile [color="#7FFF00" label="reconstruct vectors"];
+  label_ -> idmap [color="#7FFF00"];
+  label_ -> probe [color="#00FFFF" label="fit / save"];
+  label_ -> labels [color="#7FFF00"];
+  label_ -> probept [color="#7FFF00"];
+}

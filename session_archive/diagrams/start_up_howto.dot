@@ -1,0 +1,35 @@
+digraph startup_howto {
+  graph [bgcolor="black" rankdir=TB fontname="Courier New"
+         label="session_archive — cold-start HOWTO"
+         labelloc=t fontcolor="#00FF41" fontsize=17 pad=0.5 ranksep=0.45 nodesep=0.4];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=10 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=9 penwidth=2.0 color="#FF00FF"];
+
+  start [label="START\nbare-metal box" shape=circle color="#00FF41" fontcolor="#00FF41"];
+
+  prereq [label="Install prereqs:\nPython 3.10+, Docker,\nOllama, (optional CUDA GPU)" shape=box color="#00FFFF" fontcolor="#00FFFF"];
+  clone  [label="clone lobster-graph\ncd paper_processor" shape=box color="#00FFFF" fontcolor="#00FFFF"];
+  venv   [label="python3 -m venv .venv\npip install -r requirements.txt\npip install sentence-transformers faiss-cpu" shape=box color="#00FFFF" fontcolor="#00FFFF"];
+
+  neo4jup [label="docker compose up -d\n(neo4j_viz/docker-compose.yml)" shape=box color="#7FFF00" fontcolor="#7FFF00"];
+  ollamaup [label="ollama pull qwen3:14b\nollama serve" shape=box color="#7FFF00" fontcolor="#7FFF00"];
+
+  checkq [label="both reachable?\n:7687 and :11434" shape=diamond color="#FFFF00" fontcolor="#FFFF00"];
+  fixit  [label="fix Docker/Ollama\nbefore continuing" shape=box color="#FF3333" fontcolor="#FF3333"];
+
+  firstrun [label="ingest_sessions.py --limit 5\n(bge-m3 first download: ~2GB, one-time)" shape=box color="#00FF41" fontcolor="#00FF41"];
+  verify [label="query_sessions.py \"<a question\nabout one of those 5>\"" shape=box color="#00FF41" fontcolor="#00FF41"];
+
+  fullrun [label="ingest_sessions.py\n(full corpus, resumable)" shape=box color="#00FF41" fontcolor="#00FF41"];
+  done [label="READY\nquery / --like / --rerank" shape=circle color="#00FF41" fontcolor="#00FF41"];
+
+  start -> prereq -> clone -> venv;
+  venv -> neo4jup;
+  venv -> ollamaup;
+  neo4jup -> checkq;
+  ollamaup -> checkq;
+  checkq -> fixit [label="no" color="#FF3333"];
+  fixit -> checkq [color="#FF3333"];
+  checkq -> firstrun [label="yes" color="#00FF41"];
+  firstrun -> verify -> fullrun -> done;
+}

@@ -1,0 +1,41 @@
+digraph overview {
+  graph [bgcolor="black" rankdir=LR fontname="Courier New"
+         label="session_archive — 30,000ft overview"
+         labelloc=t fontcolor="#00FF41" fontsize=17 pad=0.5 nodesep=0.5];
+  node  [style=filled fillcolor="#0a0a0a" fontname="Courier New" fontsize=11 penwidth=2.0];
+  edge  [fontname="Courier New" fontsize=10 penwidth=2.0];
+
+  subgraph cluster_corpus {
+    label="Corpus"; fontcolor="#FF00FF"; color="#FF00FF"; style=dashed;
+    corpus [label="claude_creations/*/\n286 dated session folders\n(this project's own history)" color="#FF00FF" fontcolor="#FF00FF" shape=folder];
+  }
+
+  subgraph cluster_module {
+    label="session_archive/"; fontcolor="#00FFFF"; color="#00FFFF"; style=dashed;
+    ingest [label="ingest_sessions.py\nsummarize + chunk + embed" color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    label_ [label="label_sessions.py\nteach it what's relevant" color="#00FFFF" fontcolor="#00FFFF" shape=box];
+    query [label="query_sessions.py\nask it a question" color="#00FFFF" fontcolor="#00FFFF" shape=box];
+  }
+
+  subgraph cluster_storage {
+    label="Storage"; fontcolor="#7FFF00"; color="#7FFF00"; style=dashed;
+    neo4j [label="paper-processor-neo4j\nSession + Concept graph\n(shared with AI/ML papers)" color="#7FFF00" fontcolor="#7FFF00" shape=cylinder];
+    faiss [label="FAISS index\n/mnt/nvme_staging/\nsession_archive_index/" color="#7FFF00" fontcolor="#7FFF00" shape=cylinder];
+  }
+
+  subgraph cluster_user {
+    label="You"; fontcolor="#FFFF00"; color="#FFFF00"; style=dashed;
+    you [label="natural-language question\nor \"--like <past session>\"" color="#FFFF00" fontcolor="#FFFF00" shape=note];
+    answer [label="ranked past sessions\n+ related concepts" color="#FFFF00" fontcolor="#FFFF00" shape=note];
+  }
+
+  corpus -> ingest [color="#FF00FF"];
+  ingest -> neo4j [color="#00FFFF"];
+  ingest -> faiss [color="#00FFFF"];
+  label_ -> faiss [color="#00FFFF" label="reads vectors"];
+  label_ -> faiss [color="#00FFFF" style=invis];
+  you -> query [color="#FFFF00"];
+  query -> faiss [color="#7FFF00"];
+  query -> neo4j [color="#7FFF00"];
+  query -> answer [color="#FFFF00"];
+}
