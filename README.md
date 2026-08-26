@@ -83,9 +83,7 @@ Since `@cosmos.gl/graph` has no native double-click event, the frontend detects 
 ![CosmosGL systemd, wall, motd, and entry-point notices](docs/diagrams/12_cosmosgl_systemd_notifications.png)
 
 ### 10. Session Archiving
-`session_archive/` extends the same Neo4j graph with `Session` nodes (one per dated `claude_creations` folder) linked to shared `Concept` nodes, plus a FAISS vector index over chunked session text — the vector-search layer the core pipeline doesn't have. `ingest_sessions.py` summarizes each session with a local Ollama model and embeds it with `BAAI/bge-m3`; `query_sessions.py` does the retrieval, including `--like SLUG` ("more like this" session-to-session similarity) and `--rerank` (re-rank by a relevance probe trained interactively via `label_sessions.py`, a pattern ported from the sibling `militia-classifier` project). See [`session_archive/README.md`](session_archive/README.md) for CLI usage and [`session_archive/HOWTO.md`](session_archive/HOWTO.md) for cold-start setup.
-![session archive ingestion pipeline](docs/diagrams/13_session_archive_ingestion.png)
-![session archive query path](docs/diagrams/14_session_archive_query.png)
+Semantic search + a knowledge graph over a folder of dated session logs (originally built here as `session_archive/`, sharing this repo's Neo4j graph) has been extracted into its own standalone, containerized project: **[`sessionarchive`](https://github.com/danindiana/sessionarchive)**. It bundles its own Neo4j (trading the automatic `Concept` cross-linking with this repo's papers for full portability), packages `ingest`/`query`/`label` as one Docker image with a single CLI, and includes `--like SLUG` ("more like this" similarity) and `--rerank` (relevance-probe re-ranking, a pattern ported from the sibling `militia-classifier` project). See that repo for setup, usage, and architecture docs.
 
 ---
 
