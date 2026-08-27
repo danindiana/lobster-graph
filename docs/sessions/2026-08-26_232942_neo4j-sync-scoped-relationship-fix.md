@@ -290,11 +290,49 @@ Also found `~/tolaria-aiml-vault/` (a separate git repo with the same
 inode, not a symlink) but all four of its `_processed` dirs are empty (0
 `metadata.json`) — nothing to sync there.
 
-**Final graph totals** (after Parts 1-4): 17,364 Papers, 42,282 Concepts,
-16,685 Algorithms, 40,314 CodeSnippets, 21,740 Theorems, 34,580 MENTIONS
-edges, 1,468,329 REFERS_TO edges, 1,175,933 IMPLEMENTS edges — up from
-1,384 Papers at the start of this session (a ~12.5x increase in synced
-papers). The large REFERS_TO/IMPLEMENTS edge counts are expected/pre-existing:
-the CONTAINS-based name-matching heuristic is intentionally loose and
-produces many matches, especially for short concept names — a data-quality
-characteristic of the heuristic itself, unrelated to this session's changes.
+The 3 newly-found corpora backfilled clean (zero tracebacks): `~/Documents/_processed`
+(3 papers), `~/Documents/computer science/_processed` (1,020 papers),
+`~/Documents/computers/_processed` (1,330 papers).
+
+**Corpora swept this session: 19 total.** `aug_8_2026`, `aug_12_2026`,
+`July-30-2026/saved_go_crawlerv2`, 5× IETF proceedings/slides tranches
+(106/105/104, 121/120), `illoinois_edu`, `july_HF_Papers`, `Aug_7_2026`,
+`fork_2026-05-09T184929Z`, `AI-ML_Papers` + its `transformers`/`EBF`/
+`nanobots` subfolders, and the 3 found in the final sweep above. (One more,
+`mono_folderv5/Aug_21_2026/_processed`, and all four `tolaria-aiml-vault`
+`_processed` dirs were checked and confirmed empty — 0 completed papers,
+nothing to sync.)
+
+**True final graph totals** (after Parts 1-4, including the final sweep):
+**19,627 Papers**, 48,523 Concepts, 19,573 Algorithms, 46,779 CodeSnippets,
+25,050 Theorems, 41,209 MENTIONS edges, 1,886,221 REFERS_TO edges, 1,486,053
+IMPLEMENTS edges — up from 1,384 Papers at the start of this session (a
+~14.2x increase in synced papers). The large REFERS_TO/IMPLEMENTS edge
+counts are expected/pre-existing: the CONTAINS-based name-matching
+heuristic is intentionally loose and produces many matches, especially for
+short concept names — a data-quality characteristic of the heuristic
+itself, unrelated to this session's changes.
+
+## Summary of bugs fixed this session
+
+1. **Unconditional full-graph relationship rescan** (Part 1-2): every sync
+   cycle rebuilt all cross-paper relationships from scratch regardless of
+   what changed, costing ~170-190s and intermittently exceeding the
+   caller's 120s timeout. Fixed with an early-exit when nothing changed,
+   plus touched-node-scoped queries (bidirectional per relationship type)
+   when something did.
+2. **Nested-corpus directory blindness** (Part 3): the importer's walk only
+   checked immediate children of `PROCESSED_DIR` for `metadata.json`, so
+   any corpus whose source PDFs were organized into subfolders (mirrored
+   into `_processed/<subfolder>/<paper>/`) was 100% invisible to sync,
+   unconditionally — not a timing issue, a structural one. Fixed by
+   switching to a recursive `rglob("metadata.json")` walk.
+3. **Malformed-JSON crashes losing whole corpora** (Part 4): a single
+   paper with an explicit JSON `null` name or a bare string where an
+   object was expected crashed the entire importer process, silently
+   abandoning every remaining paper in that corpus. Fixed with defensive
+   value coercion (`_safe_str`, `_sanitize_items`) and a per-paper
+   try/except safety net.
+
+All three are independent root causes of the same symptom ("papers aren't
+showing up in the graph") — fixing only one would have left real gaps.
