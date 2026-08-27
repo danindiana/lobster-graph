@@ -231,3 +231,70 @@ limitation (paper identity was never more than the filename), not
 introduced by this session's changes, and not fixed here — flagging for
 awareness. A real fix would need a more unique Paper identity (e.g. content
 hash instead of filename).
+
+## Part 4 (2026-08-27) — crash-hardening, retry, and a final completeness sweep
+
+The 14-corpus backfill in Part 3 silently lost data in 6 of the 14 runs:
+each `main()` invocation is a single process with no per-paper error
+isolation, so one malformed paper crashed the whole corpus and every
+remaining paper (in `rglob` order) was never attempted, with no error
+surfaced to `backfill_all.sh` (no `set -e`, so the loop just moved on to
+the next directory).
+
+Two real crash classes found in the log (`grep -n "Traceback" `):
+
+1. `neo4j.exceptions.ClientError: ... 'MERGE' cannot be used with a graph
+   element property value that is null` — a `Theorem`'s `"name"` was an
+   explicit JSON `null` rather than an absent key. `dict.get(key, "")`
+   only substitutes the default when the key is *missing*, not when its
+   value is `None` — so this reached the Cypher layer as a literal null
+   and MERGE (which requires a non-null match-key) rejected it.
+2. `AttributeError: 'str' object has no attribute 'get'` — a
+   `concepts`/`algorithms`/`examples` JSON array occasionally contained a
+   bare string instead of the expected `{name, ...}` object, and `.get()`
+   was called on it directly.
+
+**Fix** (`neo4j_viz/neo4j_importer.py`): added `_safe_str(d, key)`
+(coerces missing/null/non-string values to `""`) and `_sanitize_items(items)`
+(drops non-dict list entries), applied at every per-item Cypher parameter
+site. Also wrapped the entire per-paper processing body in `try/except`,
+so any *other* unanticipated malformed-data shape skips just that one paper
+with a warning instead of aborting the rest of the corpus. Added unit tests
+(`TestSanitizeItems`, `TestSafeStr`) reproducing both crash inputs.
+Regression-checked against the already-fully-synced `aug_8_2026` (flat
+layout) — no behavior change, still fast, no crash.
+
+**Retry**: re-ran the 6 affected corpora (`ietf-106`, `ietf-105`, `ietf-121`,
+`ietf-120`, `july_HF_Papers`, `AI-ML_Papers` root) with the fix. All 6
+completed with **zero tracebacks** this time (confirmed via `grep -c
+Traceback` on the full retry log). The `AI-ML_Papers` run (5,261 papers,
+by far the largest single corpus in this backfill) took noticeably longer
+on its final relationship-scoping query — one `CodeSnippet × touched-Concepts`
+`IMPLEMENTS` query ran ~14s→55s+ before completing. Verified via `SHOW
+TRANSACTIONS` that this was a single legitimately long-running query
+(status `Running`, elapsed climbing steadily), not a deadlock or hang: when
+an entire large corpus is synced in one batch, its touched-node set
+approaches the corpus size itself, so the scoped-query optimization's
+`O(touched × all)` cost degrades back toward the original `O(all × all)`
+for that one batch. This is expected and acceptable for a one-time bulk
+backfill — the optimization's actual target is the recurring 300s
+incremental cycle, where touched sets are small (1-3 papers).
+
+**Final completeness sweep**: a fresh bounded `find` under `/mnt/raid0` and
+all of `/home/jeb` (not just the previously-checked subset) turned up 3
+more real corpora that had been missed: `~/Documents/_processed` (3
+papers), `~/Documents/computer science/_processed` (1,020 papers),
+`~/Documents/computers/_processed` (1,330 papers) — backfilled the same way.
+Also found `~/tolaria-aiml-vault/` (a separate git repo with the same
+`transformers`/`EBF`/`nanobots` subfolder layout as `AI-ML_Papers`, distinct
+inode, not a symlink) but all four of its `_processed` dirs are empty (0
+`metadata.json`) — nothing to sync there.
+
+**Final graph totals** (after Parts 1-4): 17,364 Papers, 42,282 Concepts,
+16,685 Algorithms, 40,314 CodeSnippets, 21,740 Theorems, 34,580 MENTIONS
+edges, 1,468,329 REFERS_TO edges, 1,175,933 IMPLEMENTS edges — up from
+1,384 Papers at the start of this session (a ~12.5x increase in synced
+papers). The large REFERS_TO/IMPLEMENTS edge counts are expected/pre-existing:
+the CONTAINS-based name-matching heuristic is intentionally loose and
+produces many matches, especially for short concept names — a data-quality
+characteristic of the heuristic itself, unrelated to this session's changes.
