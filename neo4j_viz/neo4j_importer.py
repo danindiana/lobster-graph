@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # neo4j_importer.py
-# Parses processed paper outputs and loads them into Neo4j graph database.
+# Parses processed paper output from the shared paper_store SQLite database
+# and loads it into Neo4j graph database.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import os
 import re
+import sys
 import json
 import time
 from pathlib import Path
 from neo4j import GraphDatabase
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import paper_store
+
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "password123")
-import sys
-PROCESSED_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/mnt/raid0/monolithic_pdf_folderv3/illoinois_edu/_processed")
+DB_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else paper_store.resolve_db_path()
 
 def extract_json_block(text: str) -> dict:
     """Attempts to find and parse a fenced JSON block from the text."""
@@ -32,7 +36,7 @@ def clean_markdown_headers(content: str) -> dict:
     sections = {}
     current_header = "Intro"
     current_text = []
-    
+
     # Split lines
     for line in content.splitlines():
         if line.startswith("## "):
@@ -45,10 +49,10 @@ def clean_markdown_headers(content: str) -> dict:
             continue
         else:
             current_text.append(line)
-            
+
     if current_text:
         sections[current_header] = "\n".join(current_text).strip()
-        
+
     return sections
 
 def parse_logic_definitions(text: str) -> list:
@@ -157,10 +161,9 @@ def extract_touched_names(defs: list, algs: list, cpp_examples: list) -> tuple:
     return concept_names, algorithm_names, codesnippet_titles
 
 def main():
-    import sys
-    global PROCESSED_DIR
+    global DB_PATH
     if len(sys.argv) > 1:
-        PROCESSED_DIR = Path(sys.argv[1])
+        DB_PATH = Path(sys.argv[1])
     print(f"🔗 Connecting to Neo4j at {NEO4J_URI}...")
     driver = None
     max_attempts = 5
@@ -201,10 +204,11 @@ def main():
     except Exception as e:
         print(f"  ⚠️ Could not ensure indexes exist (continuing without them): {e}")
 
-    if not PROCESSED_DIR.exists():
-        print(f"❌ Processed directory does not exist: {PROCESSED_DIR}")
+    if not DB_PATH.exists():
+        print(f"❌ Database does not exist: {DB_PATH}")
         driver.close()
         return
+    conn = paper_store.connect(DB_PATH)
 
     # Fetch every already-synced Paper's hash in ONE query, so unchanged
     # papers can be skipped without redoing their (many-round-trip) Cypher
@@ -214,53 +218,32 @@ def main():
     # >1 hour for ~2300 papers on this project's reference hardware, which
     # silently made every periodic sync a no-op past that corpus size. See
     # speculative-paper-proc's docs/FINDINGS.md for how this was found.
+    #
+    # Keyed by paper_hash (not paper_name, as the old file-tree-era version
+    # did) — paper_hash is the DB's actual identity key, and two differently
+    # named papers could otherwise collide in a name-keyed skip-set.
     already_synced = {}
     try:
         with driver.session() as session:
-            for rec in session.run("MATCH (p:Paper) WHERE p.paper_hash IS NOT NULL RETURN p.name AS name, p.paper_hash AS hash"):
-                already_synced[rec["name"]] = rec["hash"]
+            for rec in session.run("MATCH (p:Paper) WHERE p.paper_hash IS NOT NULL RETURN p.paper_hash AS hash"):
+                already_synced[rec["hash"]] = rec["hash"]
         print(f"⚡ {len(already_synced)} papers already synced (will skip unchanged ones)")
     except Exception as e:
         print(f"  ⚠️ Could not pre-fetch synced hashes, will re-sync everything: {e}")
 
-    skipped = 0
+    total_papers = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
     synced = 0
     touched_papers = set()
     touched_concepts = set()
     touched_algorithms = set()
     touched_codesnippets = set()
-    # Walk through each processed paper folder, at any depth. Newer processing
-    # runs (paper_proc_smrtevict.py) mirror the source PDF tree under
-    # _processed/ (e.g. _processed/<source-subfolder>/<paper>/metadata.json)
-    # so a paper's own folder is not always an immediate child of
-    # PROCESSED_DIR — rglob so nested corpora are found, not just flat ones.
-    for meta_file in sorted(PROCESSED_DIR.rglob("metadata.json")):
-        path = meta_file.parent
-        if any(part.startswith("_") for part in path.relative_to(PROCESSED_DIR).parts):
-            continue
-
-        # 1. Metadata
-        try:
-            with open(meta_file, "r") as f:
-                meta = json.load(f)
-        except Exception as e:
-            print(f"  ⚠️ Error reading metadata: {e}")
-            continue
-
-        paper_name = meta.get("paper_name", path.name)
-        pdf_path = meta.get("pdf_path", "")
-        page_count = meta.get("page_count", 0)
-        chunk_strategy = meta.get("chunk_strategy", "")
-        processed_at = meta.get("processed_at", "")
-        paper_hash = meta.get("paper_hash", "")
-
-        if paper_hash and already_synced.get(paper_name) == paper_hash:
-            skipped += 1
-            continue
+    for record in paper_store.iter_papers_for_sync(conn, since_hash_map=already_synced):
+        paper_name = record.paper_name
+        paper_hash = record.paper_hash
 
         synced += 1
         touched_papers.add(paper_name)
-        print(f"\n📂 Processing paper folder: {path.name}...")
+        print(f"\n📂 Processing paper: {paper_name}...")
 
         try:
             # Initialize default properties
@@ -273,10 +256,8 @@ def main():
             defs, algs, cpp_examples = [], [], []
 
             # 2. Parse Summary
-            summary_file = path / "01_summary.md"
-            if summary_file.exists():
-                content = summary_file.read_text(encoding="utf-8")
-                sum_sections = clean_markdown_headers(content)
+            if record.summary_md:
+                sum_sections = clean_markdown_headers(record.summary_md)
                 motivation = sum_sections.get("Motivation & Problem Statement", "")
                 methodology = sum_sections.get("Core Methodology", "")
                 contributions = sum_sections.get("Key Contributions", "")
@@ -284,9 +265,8 @@ def main():
                 significance = sum_sections.get("Significance", "")
 
             # 3. Parse Extras
-            extras_file = path / "04_extras.md"
-            if extras_file.exists():
-                extras = extras_file.read_text(encoding="utf-8").strip()
+            if record.extras_md:
+                extras = record.extras_md.strip()
 
             # Create Paper Node
             with driver.session() as session:
@@ -307,10 +287,10 @@ def main():
                     }
                 """, {
                     "name": paper_name,
-                    "pdf_path": pdf_path,
-                    "page_count": page_count,
-                    "chunk_strategy": chunk_strategy,
-                    "processed_at": processed_at,
+                    "pdf_path": record.pdf_path or "",
+                    "page_count": record.page_count or 0,
+                    "chunk_strategy": record.chunk_strategy or "",
+                    "processed_at": record.processed_at or "",
                     "paper_hash": paper_hash,
                     "motivation": motivation,
                     "methodology": methodology,
@@ -322,10 +302,9 @@ def main():
                 print(f"  📝 Created Paper node: {paper_name}")
 
             # 4. Parse Logic Definitions, Theorems, Algorithms
-            logic_file = path / "02_symbolic_logic.md"
-            if logic_file.exists():
-                logic_content = logic_file.read_text(encoding="utf-8")
-            
+            if record.symbolic_logic_md:
+                logic_content = record.symbolic_logic_md
+
                 logic_json = extract_json_block(logic_content)
                 if logic_json and ("concepts" in logic_json or "theorems" in logic_json or "algorithms" in logic_json):
                     defs = _sanitize_items(logic_json.get("concepts", []))
@@ -336,7 +315,7 @@ def main():
                     defs = parse_logic_definitions(logic_sections.get("1. Core Definitions & Notation", ""))
                     theorems = parse_logic_theorems(logic_sections.get("2. Key Theorems & Propositions", ""))
                     algs = parse_logic_algorithms(logic_sections.get("3. Algorithm Formalisation", ""))
-            
+
                 with driver.session() as session:
                     for d in defs:
                         session.run("""
@@ -368,16 +347,15 @@ def main():
                 print(f"  🤖 Imported {len(algs)} Algorithms")
 
             # 5. Parse C++ Examples
-            cpp_file = path / "03_cpp_examples.md"
-            if cpp_file.exists():
-                cpp_content = cpp_file.read_text(encoding="utf-8")
-            
+            if record.cpp_examples_md:
+                cpp_content = record.cpp_examples_md
+
                 cpp_json = extract_json_block(cpp_content)
                 if cpp_json and "examples" in cpp_json:
                     cpp_examples = _sanitize_items(cpp_json.get("examples", []))
                 else:
                     cpp_examples = parse_cpp_examples(cpp_content)
-                
+
                 with driver.session() as session:
                     for c in cpp_examples:
                         session.run("""
@@ -388,29 +366,23 @@ def main():
                         """, {"paper_name": paper_name, "title": _safe_str(c, "name") or _safe_str(c, "title"), "code": _safe_str(c, "code")})
                 print(f"  💻 Imported {len(cpp_examples)} C++ Examples")
 
-            # 6. Parse Diagrams (.dot files)
-            diagrams_dir = path / "diagrams"
-            if diagrams_dir.exists():
-                dot_files = list(diagrams_dir.glob("*.dot"))
+            # 6. Parse Diagrams
+            diagrams = paper_store.load_diagrams(conn, paper_hash)
+            if diagrams:
                 with driver.session() as session:
-                    for dot_file in dot_files:
-                        title = dot_file.stem[3:].replace("_", " ").title() # strip idx (e.g. 01_)
-                        dot_src = dot_file.read_text(encoding="utf-8")
-                    
-                        # Relativize SVG path for static hosting serving. Uses the
-                        # full path relative to PROCESSED_DIR (not just path.name)
-                        # so nested corpora (_processed/<subfolder>/<paper>/...)
-                        # resolve to the real on-disk location, not a truncated one.
-                        rel_paper_path = path.relative_to(PROCESSED_DIR).as_posix()
-                        rel_svg = f"_processed/{rel_paper_path}/diagrams/{dot_file.stem}.svg"
-                    
+                    for d in diagrams:
+                        # No leading slash: neo4j_viz/{index,webgl}.html render
+                        # this as `<img src="/${props.svg_path}">`, prepending
+                        # the slash themselves — a leading slash here would
+                        # produce a protocol-relative "//diagram/..." URL.
+                        svg_path = f"diagram/{paper_hash}/{d.idx}.svg"
                         session.run("""
                             MATCH (p:Paper {name: $paper_name})
-                            MERGE (d:Diagram {title: $title})
-                            SET d.dot_src = $dot, d.svg_path = $svg
-                            MERGE (p)-[:HAS_DIAGRAM]->(d)
-                        """, {"paper_name": paper_name, "title": title, "dot": dot_src, "svg": rel_svg})
-                print(f"  📊 Imported {len(dot_files)} DOT/SVG Diagrams")
+                            MERGE (dg:Diagram {title: $title})
+                            SET dg.dot_src = $dot, dg.svg_path = $svg
+                            MERGE (p)-[:HAS_DIAGRAM]->(dg)
+                        """, {"paper_name": paper_name, "title": d.title, "dot": d.dot_src, "svg": svg_path})
+                print(f"  📊 Imported {len(diagrams)} DOT/SVG Diagrams")
 
             # Fold this paper's parsed names into the running touched-sets used
             # to scope the relationship-inference queries below.
@@ -419,7 +391,7 @@ def main():
             touched_algorithms |= a_names
             touched_codesnippets |= code_titles
         except Exception as e:
-            print(f"  \u26a0\ufe0f  Error processing paper {paper_name!r} — skipping this paper, continuing batch: {e}")
+            print(f"  ⚠️  Error processing paper {paper_name!r} — skipping this paper, continuing batch: {e}")
             continue
 
     # 7. Post-import relationship heuristic creation:
@@ -435,7 +407,7 @@ def main():
     # subprocess timeout. Only run it when this pass actually synced new or
     # changed papers.
     if synced == 0:
-        print(f"⚡ Skipped {skipped} unchanged paper(s) (matching paper_hash already in graph)")
+        print(f"⚡ Skipped {total_papers - synced} unchanged paper(s) (matching paper_hash already in graph)")
         print("  ⏭️  No new/changed papers this cycle — skipping full-graph relationship rescan")
         print("🎉 Graph database load complete!")
         driver.close()
@@ -527,7 +499,7 @@ def main():
                 MERGE (code)-[:IMPLEMENTS]->(c)
             """, {"touched": touched_concepts_list})
 
-    print(f"⚡ Skipped {skipped} unchanged paper(s) (matching paper_hash already in graph)")
+    print(f"⚡ Skipped {total_papers - synced} unchanged paper(s) (matching paper_hash already in graph)")
     print("🎉 Graph database load complete!")
     driver.close()
 

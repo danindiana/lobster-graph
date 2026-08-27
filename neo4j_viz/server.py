@@ -8,63 +8,72 @@ import os
 import sys
 import socket
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import paper_store
 
 PORT = 8585
-PROCESSED_PATH = os.path.join(os.path.expanduser("~"), "Documents", "AI-ML_Papers", "_processed")
-if len(sys.argv) > 1:
-    PROCESSED_PATH = sys.argv[1]
+DB_PATH = paper_store.resolve_db_path(sys.argv[1] if len(sys.argv) > 1 else None)
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class DashboardHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
-        global PROCESSED_PATH
+        global DB_PATH
         # Strip query parameters and hash fragments
         path = path.split('?', 1)[0]
         path = path.split('#', 1)[0]
-        
-        # Intercept and map /_processed/ assets to the external processed SSD folder
-        if path.startswith("/_processed/"):
-            rel_path = path[len("/_processed/"):].lstrip("/")
-            root_real = os.path.realpath(PROCESSED_PATH)
-            target_path = os.path.realpath(os.path.join(root_real, rel_path))
-            try:
-                if os.path.commonpath([root_real, target_path]) != root_real:
-                    return None
-            except ValueError:
+
+        # Diagram SVGs live in the SQLite DB now, not on disk — serve them
+        # directly rather than returning a filesystem path for
+        # SimpleHTTPRequestHandler's default static-file serving to consume.
+        if path.startswith("/diagram/"):
+            import json
+            parts = path[len("/diagram/"):].split("/")
+            result = None
+            if len(parts) == 2 and parts[1].endswith(".svg"):
+                paper_hash = parts[0]
+                try:
+                    idx = int(parts[1][:-len(".svg")])
+                except ValueError:
+                    idx = None
+                if idx is not None:
+                    conn = paper_store.connect(DB_PATH)
+                    try:
+                        result = paper_store.get_diagram_svg(conn, paper_hash, idx)
+                    finally:
+                        conn.close()
+            if result is None:
+                self.send_response(404)
+                self.end_headers()
                 return None
-            return target_path
-            
+            _title, svg_content = result
+            self.send_response(200)
+            self.send_header('Content-type', 'image/svg+xml')
+            self.end_headers()
+            self.wfile.write(svg_content.encode('utf-8'))
+            return None
+
         if path == "/api/active_datasets":
-            import subprocess, json
+            import json
             try:
-                ps = subprocess.check_output(["ps", "aux"]).decode()
-                datasets = set()
-                for line in ps.splitlines():
-                    if "vram_resident_processor.py" in line and "grep" not in line:
-                        parts = line.split("vram_resident_processor.py")
-                        if len(parts) > 1:
-                            args = parts[1].strip().split()
-                            if args:
-                                dataset_path = args[0]
-                                datasets.add(os.path.join(dataset_path, "_processed"))
-                datasets.add(PROCESSED_PATH)
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({"datasets": list(datasets)}).encode())
-            except Exception as e:
+                self.wfile.write(json.dumps({"datasets": [str(DB_PATH)]}).encode())
+            except Exception:
                 self.send_response(500)
                 self.end_headers()
             return None
-            
+
         if path == "/webgl":
             path = "/webgl.html"
-            
+
         # Intercept /api/sync to trigger Neo4j import
         if path == "/api/sync":
             import subprocess, json
             try:
-                subprocess.run([sys.executable, "neo4j_importer.py", PROCESSED_PATH], cwd=DASHBOARD_DIR)
+                subprocess.run([sys.executable, "neo4j_importer.py", str(DB_PATH)], cwd=DASHBOARD_DIR)
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -74,7 +83,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(f'{{"error":"{e}"}}'.encode())
             return None
-            
+
         # Default behavior: serve from dashboard directory
         return os.path.join(DASHBOARD_DIR, path.lstrip("/"))
 
@@ -86,8 +95,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        global PROCESSED_PATH
+        global DB_PATH
         if self.path == "/api/set_dataset":
+            # Kept for the frontend's existing "Connect" flow (webgl.html /
+            # index.html POST the dataset-select value here before every
+            # connect) — with one global DB there's normally only one entry,
+            # but this still lets a path be pointed at a different DB file.
             content_length = int(self.headers.get('Content-Length', 0))
             if content_length > 0:
                 body = self.rfile.read(content_length)
@@ -95,7 +108,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 try:
                     data = json.loads(body.decode('utf-8'))
                     if 'path' in data:
-                        PROCESSED_PATH = data['path']
+                        DB_PATH = Path(data['path'])
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
                         self.end_headers()
@@ -183,7 +196,7 @@ def run():
     print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(f"🟢 Local: http://localhost:{PORT}")
     print(f"🟢 LAN:   http://{lan_ip}:{PORT}")
-    print(f"📂 Assets: {PROCESSED_PATH}")
+    print(f"📂 Database: {DB_PATH}")
     print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print("Press Ctrl+C to terminate the web server.\n")
     

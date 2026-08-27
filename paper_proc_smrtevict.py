@@ -27,13 +27,13 @@ import json
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import textwrap
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -55,6 +55,9 @@ from ocr_fallback import (
     DEFAULT_MIN_CHARS,
     extract_pages_with_ocr,
 )
+
+import functools
+import paper_store
 
 # Per-document OCR rasterisation budget (caps blast radius on huge scanned
 # books). Pages beyond this fall back to native text; 0 disables the cap.
@@ -508,39 +511,13 @@ DIAGRAM_PROMPT = textwrap.dedent("""\
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATA CLASSES
+# STORAGE — per-paper metadata/sections/diagrams live in the shared SQLite
+# database (paper_store.py), not in per-paper output folders. ALL_SECTIONS
+# and STALE_LOCK_SECONDS are canonical there; re-exported here for callers
+# in this module that still reference them by their old bare names.
 # ══════════════════════════════════════════════════════════════════════════════
-@dataclass
-class Metadata:
-    paper_name: str
-    pdf_path: str
-    page_count: int
-    chunk_strategy: str
-    model_used: str
-    code_model: str
-    processed_at: str
-    paper_hash: str
-    sections_completed: List[str] = field(default_factory=list)
-
-    def save(self, path: Path):
-        path.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
-
-    @classmethod
-    def load(cls, path: Path) -> Optional["Metadata"]:
-        try:
-            data = json.loads(path.read_text())
-            return cls(**data)
-        except Exception:
-            return None
-
-
-ALL_SECTIONS = {"summary", "logic", "cpp", "diagrams", "extras"}
-
-# Cross-process claim timeout for concurrent workers (e.g. one instance per
-# GPU) sharing the same papers_dir/_processed tree. A lock older than this is
-# assumed to be from a crashed worker, not a paper that's legitimately still
-# running, and gets reclaimed.
-STALE_LOCK_SECONDS = 4 * 3600
+ALL_SECTIONS = paper_store.ALL_SECTIONS
+STALE_LOCK_SECONDS = paper_store.STALE_LOCK_SECONDS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -974,22 +951,23 @@ def ensure_neon_black(dot_src: str) -> str:
     return dot_src
 
 
-def render_dot(dot_src: str, out_svg: Path) -> bool:
+def render_dot(dot_src: str) -> Optional[str]:
+    """Render DOT source to SVG text (in-memory — no filesystem output)."""
     try:
         r = subprocess.run(
-            ["dot", "-Tsvg", "-o", str(out_svg)],
+            ["dot", "-Tsvg"],
             input=dot_src,
             text=True,
             capture_output=True,
             timeout=30,
         )
-        return r.returncode == 0
+        return r.stdout if r.returncode == 0 else None
     except FileNotFoundError:
         print("      ⚠️  graphviz `dot` not found — SVGs will not be rendered")
         print("          Fix: sudo apt install graphviz")
-        return False
+        return None
     except Exception:
-        return False
+        return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1000,6 +978,7 @@ class PaperProcessor:
         self,
         papers_dir: Path,
         backend: Backend,
+        db_path: Path,
         forced_model: Optional[str] = None,
         forced_code_model: Optional[str] = None,
         reprocess: Optional[str] = None,
@@ -1011,7 +990,11 @@ class PaperProcessor:
         ocr_max_pages: Optional[int] = None,
     ):
         self.papers_dir        = papers_dir
-        self.out_root          = papers_dir / "_processed"
+        # Opened per-process() call, not stored/shared — sqlite3.Connection
+        # objects aren't safe to use across threads, and --workers > 1 runs
+        # process() from a ThreadPoolExecutor. WAL mode makes many short-lived
+        # connections against the same file cheap and safe.
+        self.db_path            = db_path
         self.backend           = backend
         self.forced_model      = forced_model
         self.forced_code_model = forced_code_model
@@ -1022,100 +1005,61 @@ class PaperProcessor:
         self.ocr_dpi       = ocr_dpi
         self.ocr_lang      = ocr_lang
         self.ocr_max_pages = ocr_max_pages
-        self.out_root.mkdir(exist_ok=True)
 
     # ── Utilities ─────────────────────────────────────────────────────────
-    def _paper_dir(self, pdf: Path) -> Path:
-        # Mirror the input tree under _processed/ so subfolder structure is preserved
-        # and slug collisions across subdirs are impossible.
-        try:
-            rel_parent = pdf.parent.relative_to(self.papers_dir)
-        except ValueError:
-            rel_parent = Path("")
-        parent_slug = Path(*[
-            re.sub(r"[^\w\-]", "_", part).lower().strip("_")
-            for part in rel_parent.parts
-        ]) if rel_parent.parts else Path("")
-        stem_slug = re.sub(r"[^\w\-]", "_", pdf.stem)[:64].lower().strip("_")
-        d = self.out_root / parent_slug / stem_slug
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "diagrams").mkdir(exist_ok=True)
-        return d
-
-    def _should_run(self, section: str, completed: List[str]) -> bool:
-        if self.reprocess in (section, "all"):
-            return True
-        return section not in completed
-
-    def _write_md(self, path: Path, heading: str, body: str):
-        path.write_text(f"# {heading}\n\n{body}\n", encoding="utf-8")
+    def _format_md(self, heading: str, body: str) -> str:
+        return f"# {heading}\n\n{body}\n"
 
     def _tag_prompt(self, task_prompt: str, context: str) -> str:
         """Wrap paper context in XML tags for cleaner prompt structure."""
         return f"{task_prompt}\n\n<paper>\n{context}\n</paper>"
 
-    def _save_meta(
-        self,
-        meta_path: Path,
-        pdf_path: Path,
-        page_count: int,
-        strategy: str,
-        model: str,
-        code_model: str,
-        paper_hash: str,
-        completed: List[str],
-    ) -> None:
-        Metadata(
-            paper_name        = pdf_path.name,
-            pdf_path          = str(pdf_path),
-            page_count        = page_count,
-            chunk_strategy    = strategy,
-            model_used        = model,
-            code_model        = code_model,
-            processed_at      = time.strftime("%Y-%m-%dT%H:%M:%S"),
-            paper_hash        = paper_hash,
-            sections_completed= completed,
-        ).save(meta_path)
-
     # ── Main entry ────────────────────────────────────────────────────────
     def process(self, pdf_path: Path) -> None:
-        paper_dir = self._paper_dir(pdf_path)
-        meta_path = paper_dir / "metadata.json"
-        meta      = Metadata.load(meta_path)
-
-        # Skip if fully complete and no reprocess requested
-        if (
-            meta is not None
-            and ALL_SECTIONS.issubset(set(meta.sections_completed))
-            and self.reprocess is None
-        ):
-            print(f"  ⏭   {pdf_path.name}  (all sections complete)")
-            return
-
-        # Cross-process claim so two concurrent workers (e.g. one per GPU,
-        # both scanning the same papers_dir) never both pick up this paper.
-        lock_path = paper_dir / ".processing.lock"
+        conn = paper_store.connect(self.db_path)
         try:
-            lock_path.touch(exist_ok=False)
-        except FileExistsError:
-            age = time.time() - lock_path.stat().st_mtime
-            if age < STALE_LOCK_SECONDS:
-                print(f"  🔒  {pdf_path.name}  (claimed by another worker {age:.0f}s ago — skipping)")
+            # Cheap skip-check keyed by pdf_path (no hashing / file read
+            # needed) — same "trust the path, not the content" semantics the
+            # old slug-based _processed/<slug>/metadata.json lookup already had.
+            record = paper_store.load_paper_by_pdf_path(conn, str(pdf_path))
+
+            if (
+                record is not None
+                and ALL_SECTIONS.issubset(set(record.sections_completed))
+                and self.reprocess is None
+            ):
+                print(f"  ⏭   {pdf_path.name}  (all sections complete)")
                 return
-            print(f"  ⚠️   {pdf_path.name}  (stale lock {age/3600:.1f}h old — reclaiming)")
 
-        try:
-            self._process_locked(pdf_path, paper_dir, meta_path, meta)
+            # Cross-process claim so two concurrent workers (e.g. one per GPU,
+            # both scanning the same papers_dir) never both pick up this paper.
+            # Keyed by pdf_path, not paper_hash — the hash isn't known until
+            # after the file is read+hashed inside _process_locked.
+            claim = paper_store.try_claim(conn, str(pdf_path))
+            if not claim.claimed:
+                print(f"  🔒  {pdf_path.name}  (claimed by another worker {claim.age_seconds:.0f}s ago — skipping)")
+                return
+            if claim.reclaimed:
+                print(f"  ⚠️   {pdf_path.name}  (stale lock {claim.age_seconds/3600:.1f}h old — reclaiming)")
+
+            try:
+                self._process_locked(pdf_path, record, conn)
+            finally:
+                paper_store.release_claim(conn, str(pdf_path))
         finally:
-            lock_path.unlink(missing_ok=True)
+            conn.close()
 
-    def _process_locked(self, pdf_path: Path, paper_dir: Path, meta_path: Path, meta) -> None:
+    def _process_locked(self, pdf_path: Path, record, conn: sqlite3.Connection) -> None:
         print(f"\n{'─'*64}")
         print(f"  📄  {pdf_path.name}")
 
         # ── Extract & chunk ───────────────────────────────────────────────
         # Hash first so the OCR cache key is stable across re-runs.
         paper_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()[:16]
+
+        if self.reprocess:
+            paper_store.clear_section(conn, paper_hash, self.reprocess)
+
         pages, ocr_stats = extract_pages_with_ocr(
             pdf_path,
             mode=self.ocr_mode,
@@ -1124,7 +1068,8 @@ class PaperProcessor:
             lang=self.ocr_lang,
             max_ocr_pages=self.ocr_max_pages,
             paper_hash=paper_hash,
-            cache_dir=paper_dir / ".ocr_cache",
+            cache_reader=functools.partial(paper_store.get_cached_ocr_page, conn, paper_hash),
+            cache_writer=functools.partial(paper_store.put_cached_ocr_page, conn, paper_hash),
         )
         page_count = len(pages)
         model      = select_model(page_count, self.forced_model)
@@ -1146,15 +1091,30 @@ class PaperProcessor:
         print(f"     code_model={code_model}")
         print(f"     strategy={strategy}")
 
-        completed: List[str] = list(meta.sections_completed) if meta else []
+        # Re-check by content hash, not just by pdf_path: this exact PDF may
+        # already have a row from a different corpus/papers_dir (paper_hash
+        # is a global identity — that's the point of the consolidated DB).
+        # Every write below persists immediately, so there's no in-memory
+        # checkpoint to lose on interrupt — `completed` just mirrors DB state
+        # as we go, for the should_run()/print bookkeeping.
+        by_hash = paper_store.load_paper(conn, paper_hash)
+        if by_hash is not None:
+            completed: List[str] = list(by_hash.sections_completed)
+        else:
+            completed = list(record.sections_completed) if record else []
 
-        def _checkpoint():
-            self._save_meta(meta_path, pdf_path, page_count, strategy,
-                            model, code_model, paper_hash, completed)
+        paper_store.upsert_paper_meta(
+            conn, paper_hash, pdf_path.name, str(pdf_path), page_count,
+            strategy, model, code_model,
+        )
+
+        def _should_run(section: str) -> bool:
+            if self.reprocess in (section, "all"):
+                return True
+            return section not in completed
 
         def _shutting_down() -> bool:
             if _shutdown.is_set():
-                _checkpoint()
                 print(f"     ⚡  Stopped — {len(completed)} section(s) saved")
                 return True
             return False
@@ -1163,7 +1123,6 @@ class PaperProcessor:
         try:
             context = map_reduce_chunks(chunks, self.backend, model)
         except _ShutdownRequested:
-            _checkpoint()
             print(f"     ⚡  Stopped during map-reduce — {len(completed)} section(s) saved")
             return
 
@@ -1173,58 +1132,58 @@ class PaperProcessor:
         capped = context[:45_000]
 
         # ── 1. Summary ────────────────────────────────────────────────────
-        if self._should_run("summary", completed):
+        if _should_run("summary"):
             if _shutting_down():
                 return
             print("     📝  Summary …")
             try:
                 out = self.backend.call(self._tag_prompt(PROMPTS["summary"], capped), model)
             except _ShutdownRequested:
-                _checkpoint()
                 print(f"     ⚡  Interrupted mid-section — {len(completed)} section(s) saved")
                 return
-            self._write_md(paper_dir / "01_summary.md", "Summary", out)
+            paper_store.write_section(conn, paper_hash, "summary", self._format_md("Summary", out))
             if "summary" not in completed:
                 completed.append("summary")
-            _checkpoint()
             print("         ✓")
 
         # ── 2. Symbolic Logic ─────────────────────────────────────────────
-        if self._should_run("logic", completed):
+        if _should_run("logic"):
             if _shutting_down():
                 return
             print("     🔣  Symbolic logic …")
             try:
                 out = self.backend.call(self._tag_prompt(PROMPTS["logic"], capped), model)
             except _ShutdownRequested:
-                _checkpoint()
                 print(f"     ⚡  Interrupted mid-section — {len(completed)} section(s) saved")
                 return
-            self._write_md(paper_dir / "02_symbolic_logic.md", "Symbolic Logic Formulation", out)
+            paper_store.write_section(
+                conn, paper_hash, "logic",
+                self._format_md("Symbolic Logic Formulation", out),
+            )
             if "logic" not in completed:
                 completed.append("logic")
-            _checkpoint()
             print("         ✓")
 
         # ── 3. C++ Examples ───────────────────────────────────────────────
-        if self._should_run("cpp", completed):
+        if _should_run("cpp"):
             if _shutting_down():
                 return
             print(f"     💻  C++ examples  (model: {code_model}) …")
             try:
                 out = self.backend.call(self._tag_prompt(PROMPTS["cpp"], capped), code_model)
             except _ShutdownRequested:
-                _checkpoint()
                 print(f"     ⚡  Interrupted mid-section — {len(completed)} section(s) saved")
                 return
-            self._write_md(paper_dir / "03_cpp_examples.md", "C++ Implementation Examples", out)
+            paper_store.write_section(
+                conn, paper_hash, "cpp",
+                self._format_md("C++ Implementation Examples", out),
+            )
             if "cpp" not in completed:
                 completed.append("cpp")
-            _checkpoint()
             print("         ✓")
 
         # ── 4. Graphviz Diagrams ──────────────────────────────────────────
-        if self._should_run("diagrams", completed):
+        if _should_run("diagrams"):
             if _shutting_down():
                 return
             print("     📊  Graphviz diagrams …")
@@ -1234,67 +1193,59 @@ class PaperProcessor:
                     model,
                 )
             except _ShutdownRequested:
-                _checkpoint()
                 print(f"     ⚡  Interrupted mid-section — {len(completed)} section(s) saved")
                 return
             diagrams = parse_diagrams(raw)
 
             if not diagrams:
-                # Save raw output so user can inspect / manually extract DOT
-                raw_out = paper_dir / "diagrams" / "_raw_llm_output.txt"
-                raw_out.write_text(raw, encoding="utf-8")
+                # Save raw output so the user can inspect / manually extract DOT.
+                # Existing diagrams (if any, from a prior successful run) are
+                # left untouched — only a real reparse purges them.
+                paper_store.write_diagrams_raw_output(conn, paper_hash, raw)
                 print(
                     f"     ⚠️   No diagrams parsed from LLM output.\n"
-                    f"          Raw output saved → {raw_out}\n"
+                    f"          Raw output saved to the database (paper_hash={paper_hash}).\n"
                     f"          Tip: re-run with --reprocess diagrams after inspecting output."
                 )
             else:
-                # Purge stale slugs so reprocessing doesn't leave orphaned files
-                # from a prior run that used different diagram titles.
-                diag_dir = paper_dir / "diagrams"
-                for _stale in list(diag_dir.glob("*.dot")) + list(diag_dir.glob("*.svg")):
-                    _stale.unlink()
+                diagram_rows: List[Tuple[str, str, Optional[str]]] = []
                 for idx, (title, dot_src) in enumerate(diagrams, 1):
-                    dot_src  = ensure_neon_black(dot_src)
-                    safe     = re.sub(r"[^\w\-]", "_", title)[:40].lower().strip("_")
-                    dot_path = diag_dir / f"{idx:02d}_{safe}.dot"
-                    svg_path = diag_dir / f"{idx:02d}_{safe}.svg"
-                    dot_path.write_text(dot_src, encoding="utf-8")
-                    ok     = render_dot(dot_src, svg_path)
-                    status = "✓" if ok else "✗ (dot saved, SVG render failed)"
+                    dot_src     = ensure_neon_black(dot_src)
+                    svg_content = render_dot(dot_src)
+                    status      = "✓" if svg_content is not None else "✗ (dot saved, SVG render failed)"
                     print(f"       {idx}. {title:<45} {status}")
+                    diagram_rows.append((title, dot_src, svg_content))
+                paper_store.replace_diagrams(conn, paper_hash, diagram_rows)
 
             if "diagrams" not in completed:
                 completed.append("diagrams")
-            _checkpoint()
+            paper_store.mark_section_complete(conn, paper_hash, "diagrams")
 
         # ── 5. Extras ─────────────────────────────────────────────────────
-        if self._should_run("extras", completed):
+        if _should_run("extras"):
             if _shutting_down():
                 return
             print("     💡  Extras / critical analysis …")
             try:
                 out = self.backend.call(self._tag_prompt(PROMPTS["extras"], capped), model)
             except _ShutdownRequested:
-                _checkpoint()
                 print(f"     ⚡  Interrupted mid-section — {len(completed)} section(s) saved")
                 return
-            self._write_md(paper_dir / "04_extras.md", "Additional Insights", out)
+            paper_store.write_section(
+                conn, paper_hash, "extras",
+                self._format_md("Additional Insights", out),
+            )
             if "extras" not in completed:
                 completed.append("extras")
-            _checkpoint()
             print("         ✓")
 
-        # ── Write / update metadata ────────────────────────────────────────
-        _checkpoint()
-        print(f"     ✅  Output → {paper_dir}")
+        print(f"     ✅  Stored — paper_hash={paper_hash}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLI
 # ══════════════════════════════════════════════════════════════════════════════
-def list_status(papers_dir: Path):
-    processed_dir = papers_dir / "_processed"
+def list_status(papers_dir: Path, conn: sqlite3.Connection):
     pdfs = sorted(p for p in papers_dir.rglob("*.pdf") if "_processed" not in p.parts)
     if not pdfs:
         print(f"  No PDFs found in {papers_dir}")
@@ -1303,24 +1254,14 @@ def list_status(papers_dir: Path):
     print(f"\n  {'Paper':<60}  {'Status'}")
     print(f"  {'─'*60}  {'─'*30}")
     for pdf in pdfs:
-        try:
-            rel_parent = pdf.parent.relative_to(papers_dir)
-        except ValueError:
-            rel_parent = Path("")
-        parent_slug = Path(*[
-            re.sub(r"[^\w\-]", "_", part).lower().strip("_")
-            for part in rel_parent.parts
-        ]) if rel_parent.parts else Path("")
-        stem_slug = re.sub(r"[^\w\-]", "_", pdf.stem)[:64].lower().strip("_")
-        meta_path = processed_dir / parent_slug / stem_slug / "metadata.json"
-        meta      = Metadata.load(meta_path) if meta_path.exists() else None
+        record = paper_store.load_paper_by_pdf_path(conn, str(pdf))
 
-        if meta is None:
+        if record is None:
             status = "⬜  not started"
-        elif ALL_SECTIONS.issubset(set(meta.sections_completed)):
-            status = f"✅  complete  [{meta.model_used}]"
+        elif ALL_SECTIONS.issubset(set(record.sections_completed)):
+            status = f"✅  complete  [{record.model_used}]"
         else:
-            missing = ALL_SECTIONS - set(meta.sections_completed)
+            missing = ALL_SECTIONS - set(record.sections_completed)
             status  = f"⚠️   partial — missing: {', '.join(sorted(missing))}"
 
         rel = pdf.relative_to(papers_dir).as_posix()
@@ -1407,7 +1348,7 @@ def _print_dashboard_status():
     print(f"  Dashboards: webgl.html {webgl_state}  |  CosmosGL {cosmos_state}")
 
 
-def _sync_to_neo4j(processed_dir: Optional[str] = None):
+def _sync_to_neo4j(db_path: Optional[str] = None):
     """Checks if Neo4j is listening on Port 7687 and runs the importer script to auto-sync."""
     if not _sync_lock.acquire(blocking=False):
         return
@@ -1419,8 +1360,8 @@ def _sync_to_neo4j(processed_dir: Optional[str] = None):
             if s.connect_ex(('localhost', 7687)) == 0:
                 print("\n  🔄 Syncing processed results to Neo4j graph database...")
                 cmd = [sys.executable, "neo4j_viz/neo4j_importer.py"]
-                if processed_dir:
-                    cmd.append(processed_dir)
+                if db_path:
+                    cmd.append(db_path)
                 try:
                     subprocess.run(
                         cmd,
@@ -1442,16 +1383,16 @@ def _sync_to_neo4j(processed_dir: Optional[str] = None):
         _sync_lock.release()
 
 
-def _periodic_sync_worker(processed_dir: Optional[str] = None, interval: int = 300):
+def _periodic_sync_worker(db_path: Optional[str] = None, interval: int = 300):
     """Background thread worker to periodically trigger database synchronization."""
     # Sleep 15 seconds initially to let the first paper get some processing headstart
     for _ in range(15):
         if _shutdown.is_set():
             return
         time.sleep(1)
-        
+
     while not _shutdown.is_set():
-        _sync_to_neo4j(processed_dir)
+        _sync_to_neo4j(db_path)
         
         # Non-blocking sleep responsive to shutdown event
         for _ in range(interval):
@@ -1568,17 +1509,11 @@ def main():
         description="🦞  OpenClaw / Ollama  AI-ML Paper Processing Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
-            Output tree per paper:
-              _processed/<slug>/
-                metadata.json
-                01_summary.md
-                02_symbolic_logic.md
-                03_cpp_examples.md
-                04_extras.md
-                diagrams/
-                  01_<title>.dot
-                  01_<title>.svg
-                  …  (6+ diagrams)
+            Output is stored per paper in a shared SQLite database (not a
+            per-paper folder tree) — metadata, the 4 markdown sections, and
+            diagram DOT+SVG content all live as rows keyed by paper_hash.
+            Default location: /mnt/nvme_staging/paper_processor_data/papers.db
+            (override via --db-path or the PAPER_PROCESSOR_DB env var).
 
             Model auto-selection by page count (use -s to pick interactively).
             Restricted to two active models for now (2026-08-06; xl_reason
@@ -1701,6 +1636,11 @@ def main():
              "fall back to native text (cached pages are free). 0 = unlimited "
              f"[default: {DEFAULT_OCR_MAX_PAGES}]",
     )
+    ap.add_argument(
+        "--db-path", default=None, metavar="PATH",
+        help="Path to the shared SQLite database. Overrides the PAPER_PROCESSOR_DB "
+             f"env var and the default ({paper_store.DEFAULT_DB_PATH}).",
+    )
     args = ap.parse_args()
 
     if args.workers < 1:
@@ -1710,9 +1650,11 @@ def main():
     if not papers_dir.exists() or not papers_dir.is_dir():
         sys.exit(f"❌  Directory not found: {papers_dir}")
 
+    db_path = paper_store.resolve_db_path(args.db_path)
+
     # ── List mode ──────────────────────────────────────────────────────────
     if args.list:
-        list_status(papers_dir)
+        list_status(papers_dir, paper_store.connect(db_path))
         return
 
     _install_signal_handlers()
@@ -1767,6 +1709,7 @@ def main():
 
     print(f"  Backend   : {args.backend}")
     print(f"  Directory : {papers_dir}")
+    print(f"  Database  : {db_path}")
     print(f"  Default   : {default_model}")
     if args.reprocess:
         print(f"  Reprocess : {args.reprocess}")
@@ -1849,13 +1792,13 @@ def main():
             pdfs.sort(key=_tier_key)
 
     print(f"  Papers    : {len(pdfs)}")
-    print(f"  Output    : {papers_dir / '_processed'}")
     _print_dashboard_status()
     print()
 
     processor = PaperProcessor(
         papers_dir   = papers_dir,
         backend      = backend,
+        db_path      = db_path,
         forced_model      = args.model,
         forced_code_model = args.code_model,
         reprocess         = args.reprocess,
@@ -1870,7 +1813,7 @@ def main():
     # ── Spawn periodic database sync background thread ───────────────────────
     sync_thread = threading.Thread(
         target=_periodic_sync_worker,
-        args=(str(papers_dir / "_processed"), 300),  # sync every 5 minutes / 300 seconds
+        args=(str(db_path), 300),  # sync every 5 minutes / 300 seconds
         daemon=True
     )
     sync_thread.start()
@@ -1923,7 +1866,7 @@ def main():
                     _ollama_restart_service()
 
     # Auto-sync results to Neo4j Graph DB if it is running
-    _sync_to_neo4j(str(papers_dir / "_processed"))
+    _sync_to_neo4j(str(db_path))
 
     # ── Summary ────────────────────────────────────────────────────────────
     print(f"\n{'═'*64}")

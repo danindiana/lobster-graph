@@ -123,15 +123,21 @@ def test_scanned_pdf_recovered_via_ocr(scanned_pdf):
 
 
 @needs_ocr
-def test_ocr_cache_hit(scanned_pdf, tmp_path):
-    cache = tmp_path / ".ocr_cache"
+def test_ocr_cache_hit(scanned_pdf):
+    cache: dict = {}
     h = "cafebabecafebabe"
 
-    _, s1 = ocr.extract_pages_with_ocr(scanned_pdf, mode="auto",
-                                       paper_hash=h, cache_dir=cache)
+    _, s1 = ocr.extract_pages_with_ocr(
+        scanned_pdf, mode="auto", paper_hash=h,
+        cache_reader=cache.get,
+        cache_writer=lambda idx, text: cache.__setitem__(idx, text),
+    )
     assert s1.ocr_pages == 1 and s1.cached_pages == 0
-    assert any(cache.glob("*.txt"))
+    assert cache
 
-    _, s2 = ocr.extract_pages_with_ocr(scanned_pdf, mode="auto",
-                                       paper_hash=h, cache_dir=cache)
+    _, s2 = ocr.extract_pages_with_ocr(
+        scanned_pdf, mode="auto", paper_hash=h,
+        cache_reader=cache.get,
+        cache_writer=lambda idx, text: cache.__setitem__(idx, text),
+    )
     assert s2.ocr_pages == 0 and s2.cached_pages == 1

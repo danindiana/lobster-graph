@@ -21,7 +21,7 @@ use ratatui::{
     },
     Frame, Terminal,
 };
-use serde::Deserialize;
+use rusqlite::{Connection, OptionalExtension};
 use std::{
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
@@ -86,12 +86,6 @@ const KNOWN_GOOD_CODE_MODELS: &[ModelEntry] = &[
 // ──────────────────────────────────────────────────────────────────────
 // App state
 // ──────────────────────────────────────────────────────────────────────
-#[derive(Deserialize)]
-struct Metadata {
-    model_used: Option<String>,
-    sections_completed: Option<Vec<String>>,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Status {
     NotStarted,
@@ -681,7 +675,7 @@ fn start_scan(app: &mut App) {
 }
 
 fn scan_papers(dir: &Path) -> ScanResult {
-    let processed_root = dir.join("_processed");
+    let conn = open_db();
     let mut entries = Vec::new();
     let (mut complete, mut partial, mut pending) = (0usize, 0usize, 0usize);
 
@@ -693,14 +687,9 @@ fn scan_papers(dir: &Path) -> ScanResult {
         if p.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) != Some("pdf".into()) {
             continue;
         }
-        // Skip anything under _processed
-        if p.starts_with(&processed_root) {
-            continue;
-        }
 
         let rel = p.strip_prefix(dir).unwrap_or(p).to_string_lossy().to_string();
-        let meta_path = metadata_path_for(&processed_root, dir, p);
-        let (status, model) = classify(&meta_path);
+        let (status, model) = classify(conn.as_ref(), p);
         match status {
             Status::Complete => complete += 1,
             Status::Partial => partial += 1,
@@ -721,64 +710,72 @@ fn scan_papers(dir: &Path) -> ScanResult {
     }
 }
 
-fn slugify(s: &str) -> String {
-    let mut out: String = s
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    // strip leading/trailing underscores
-    while out.starts_with('_') {
-        out.remove(0);
-    }
-    while out.ends_with('_') {
-        out.pop();
-    }
-    if out.len() > 64 {
-        out.truncate(64);
-    }
-    out
-}
-
-fn metadata_path_for(processed_root: &Path, papers_dir: &Path, pdf: &Path) -> PathBuf {
-    let mut p = processed_root.to_path_buf();
-    if let Ok(rel_parent) = pdf.parent().unwrap_or(papers_dir).strip_prefix(papers_dir) {
-        for part in rel_parent.iter() {
-            p.push(slugify(&part.to_string_lossy()));
+/// Resolves the shared SQLite database path — mirrors paper_store.py's
+/// resolve_db_path(): PAPER_PROCESSOR_DB env var, else the fixed default.
+fn resolve_db_path() -> PathBuf {
+    if let Ok(p) = std::env::var("PAPER_PROCESSOR_DB") {
+        if !p.trim().is_empty() {
+            return PathBuf::from(p);
         }
     }
-    let stem = pdf
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    p.push(slugify(&stem));
-    p.push("metadata.json");
-    p
+    PathBuf::from("/mnt/nvme_staging/paper_processor_data/papers.db")
 }
 
-fn classify(meta_path: &Path) -> (Status, Option<String>) {
-    if !meta_path.exists() {
-        return (Status::NotStarted, None);
+/// Opens the shared DB for read-only status queries. Returns None (rather
+/// than erroring) if the DB doesn't exist yet or the papers table isn't
+/// there — every paper then classifies as NotStarted, matching the old
+/// behaviour when _processed/ hadn't been created yet.
+fn open_db() -> Option<Connection> {
+    let conn = Connection::open(resolve_db_path()).ok()?;
+    let has_papers_table: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='papers'",
+            [],
+            |row| row.get(0),
+        )
+        .ok()?;
+    if has_papers_table == 1 {
+        Some(conn)
+    } else {
+        None
     }
-    let data = std::fs::read_to_string(meta_path).unwrap_or_default();
-    let meta: Result<Metadata, _> = serde_json::from_str(&data);
-    match meta {
-        Ok(m) => {
-            let completed: Vec<String> = m.sections_completed.unwrap_or_default();
+}
+
+fn classify(conn: Option<&Connection>, pdf_path: &Path) -> (Status, Option<String>) {
+    let conn = match conn {
+        Some(c) => c,
+        None => return (Status::NotStarted, None),
+    };
+    let pdf_path_str = pdf_path.to_string_lossy().to_string();
+    let row = conn
+        .query_row(
+            "SELECT model_used, sections_completed FROM papers \
+             WHERE pdf_path = ?1 ORDER BY updated_at DESC LIMIT 1",
+            [&pdf_path_str],
+            |row| {
+                let model_used: Option<String> = row.get(0)?;
+                let sections_completed: Option<String> = row.get(1)?;
+                Ok((model_used, sections_completed))
+            },
+        )
+        .optional();
+
+    match row {
+        Ok(Some((model_used, sections_completed_json))) => {
+            let completed: Vec<String> = sections_completed_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default();
             let all = ["summary", "logic", "cpp", "diagrams", "extras"];
             let done = all.iter().all(|s| completed.iter().any(|c| c == s));
             if done {
-                (Status::Complete, m.model_used)
+                (Status::Complete, model_used)
             } else {
-                (Status::Partial, m.model_used)
+                (Status::Partial, model_used)
             }
         }
-        Err(_) => (Status::Partial, None),
+        Ok(None) => (Status::NotStarted, None),
+        Err(_) => (Status::NotStarted, None),
     }
 }
 

@@ -145,29 +145,34 @@ dot -V
 
 ---
 
-## Stale diagram slugs on reprocess
+## Stale diagrams on reprocess
 
-**Symptom:** Old diagram filenames persist in `docs/diagrams/` after reprocessing a paper with a different model that generates different diagram titles.
+**Symptom:** Old diagrams from a prior run linger after reprocessing a paper with a different model that generates different diagram titles.
 
-**Fix:** Delete the paper's diagram directory and reprocess:
+**Fix:** Reprocess just the diagrams section — the DB-backed `replace_diagrams()` call purges all of that paper's existing diagram rows before inserting the new ones, so there's no on-disk artifact to hunt for by hand:
 ```bash
-rm -rf _processed/<paper-slug>/diagrams/
+python paper_proc_smrtevict.py --reprocess diagrams <papers_dir_or_single_pdf_via_--paper>
 ```
 
-The pipeline will regenerate all diagrams from scratch. **Reference:** Fixed in commit `b3687cf`.
+**Reference:** Originally fixed for the file-tree era in commit `b3687cf`; the DB-backed `paper_store.clear_section()`/`replace_diagrams()` path carries the same purge-before-regenerate guarantee.
 
 ---
 
 ## Resuming an interrupted run
 
-The pipeline writes stage completion markers to `metadata.json` per paper. On the next run it skips any stage already marked complete.
+The pipeline writes stage completion state to the shared SQLite database (`sections_completed` on the paper's row in `paper_store.py`'s `papers` table) as each section finishes. On the next run it skips any stage already marked complete for that paper's content hash.
 
-To **force a full reprocess** of a specific paper, delete its metadata:
+To **force a full reprocess** of a specific paper:
 ```bash
-rm _processed/<paper-slug>/metadata.json
+python paper_proc_smrtevict.py --reprocess all --paper "<filename.pdf>"
 ```
 
-To reprocess only one stage, edit `metadata.json` and remove that stage's key, then re-run.
+To reprocess only one stage (`summary`, `logic`, `cpp`, `diagrams`, or `extras`):
+```bash
+python paper_proc_smrtevict.py --reprocess <section> --paper "<filename.pdf>"
+```
+
+Both are DB clears (`paper_store.clear_section()`), not file deletions — there's no `metadata.json` to find or edit by hand anymore.
 
 ---
 

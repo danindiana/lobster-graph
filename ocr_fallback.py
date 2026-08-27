@@ -31,7 +31,7 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import pymupdf as fitz  # `import fitz` alias is deprecated as of pymupdf 1.28
 
@@ -138,11 +138,6 @@ def ocr_page(page: "fitz.Page", dpi: int = DEFAULT_DPI, lang: str = DEFAULT_LANG
         return ""
 
 
-# ── Cache helpers ─────────────────────────────────────────────────────────--
-def _cache_path(cache_dir: Path, paper_hash: str, idx: int) -> Path:
-    return cache_dir / f"{paper_hash}_p{idx:04d}.txt"
-
-
 # ── Main entry point ────────────────────────────────────────────────────────
 def extract_pages_with_ocr(
     pdf_path: Path,
@@ -153,7 +148,8 @@ def extract_pages_with_ocr(
     lang: str = DEFAULT_LANG,
     max_ocr_pages: Optional[int] = None,
     paper_hash: Optional[str] = None,
-    cache_dir: Optional[Path] = None,
+    cache_reader: Optional[Callable[[int], Optional[str]]] = None,
+    cache_writer: Optional[Callable[[int, str], None]] = None,
     log=print,
 ) -> Tuple[List[str], OcrStats]:
     """
@@ -163,7 +159,11 @@ def extract_pages_with_ocr(
     (same contract as before — blank pages are dropped) and `stats` is an
     OcrStats for the caller to log.
 
-    Caching is enabled when BOTH `paper_hash` and `cache_dir` are supplied.
+    Caching is enabled when BOTH `paper_hash` and `cache_reader`/`cache_writer`
+    are supplied. Storage-agnostic by design: callers bind these to whatever
+    backend they use (e.g. `functools.partial(paper_store.get_cached_ocr_page,
+    conn, paper_hash)`) — this module has no knowledge of where the cache
+    actually lives.
     """
     stats = OcrStats()
     if mode not in ("auto", "always", "never"):
@@ -180,9 +180,6 @@ def extract_pages_with_ocr(
             stats.notes.append(f"OCR unavailable — {detail}")
             log(f"      ⚠️  OCR fallback disabled: {detail}")
 
-    if cache_dir is not None:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
     out: List[str] = []
     for idx, page in enumerate(doc):
         native = page.get_text("text").strip()
@@ -196,13 +193,13 @@ def extract_pages_with_ocr(
                 stats.skipped_blank += 1
             continue
 
-        # --- OCR path (with optional disk cache) ---
+        # --- OCR path (with optional cache) ---
         text = ""
         cached = False
-        if cache_dir is not None and paper_hash:
-            cp = _cache_path(cache_dir, paper_hash, idx)
-            if cp.exists():
-                text = cp.read_text(encoding="utf-8").strip()
+        if cache_reader is not None and paper_hash:
+            hit = cache_reader(idx)
+            if hit is not None:
+                text = hit.strip()
                 cached = True
 
         if not cached:
@@ -218,8 +215,8 @@ def extract_pages_with_ocr(
                     stats.skipped_blank += 1
                 continue
             text = ocr_page(page, dpi=dpi, lang=lang)
-            if cache_dir is not None and paper_hash:
-                _cache_path(cache_dir, paper_hash, idx).write_text(text, encoding="utf-8")
+            if cache_writer is not None and paper_hash:
+                cache_writer(idx, text)
 
         stats.ocr_used = True
         if cached:

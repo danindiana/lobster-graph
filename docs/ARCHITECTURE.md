@@ -203,24 +203,30 @@ sudo ln -sf "$(pwd)/target/release/paper-wizard" /usr/local/bin/paper-wizard
 
 ## Output layout
 
+Per-paper output is **not** a file tree — it's rows in a shared SQLite
+database (`paper_store.py`), one consolidated file for every corpus this
+machine has ever processed instead of a `_processed/` folder per corpus.
+Default location:
+
 ```
-_processed/
-└── <subfolder>/
-    └── <slug>/              # deterministic from PDF filename
-        ├── metadata.json
-        ├── 01_summary.md
-        ├── 02_symbolic_logic.md
-        ├── 03_cpp_examples.md
-        ├── 04_extras.md
-        └── diagrams/
-            ├── 01_<title>.dot
-            ├── 01_<title>.svg
-            └── …  (up to 6 pairs)
+/mnt/nvme_staging/paper_processor_data/papers.db
 ```
 
-Slugs are derived from the PDF filename with spaces replaced by hyphens and
-special characters stripped. The `source_hash` in `metadata.json` detects if
-the source PDF has changed since the dossier was last generated.
+Overridable via the `PAPER_PROCESSOR_DB` env var or each processor script's
+`--db-path` flag. Schema (see `paper_store.py` for the authoritative DDL and
+public API):
+
+| Table | Purpose |
+|---|---|
+| `papers` | One row per paper, keyed by `paper_hash` (content hash of the source PDF) — metadata (`page_count`, `model_used`, `processed_at`, …), `sections_completed` (JSON array), and the 4 markdown sections (`summary_md`, `symbolic_logic_md`, `cpp_examples_md`, `extras_md`) as columns |
+| `diagrams` | 0–6 rows per paper (`paper_hash`, `idx`, `title`, `dot_src`, `svg_content`) |
+| `ocr_cache` | Per-page OCR text cache, keyed by `(paper_hash, page_idx)` |
+| `processing_locks` | Cross-process claim, keyed by `pdf_path` (not `paper_hash` — the hash isn't known until after the PDF is read) |
+
+`paper_hash` is the real identity key: since it's a content hash of the
+PDF (not a filename slug), the same paper processed from two different
+`papers_dir` locations naturally dedups to one row instead of two separate
+file trees.
 
 ---
 

@@ -26,16 +26,16 @@ Think of it less as a summarizer and more as a **tireless research assistant** w
 
 ## What you actually get, per paper
 
-For every PDF, the pipeline produces a small folder of artifacts:
+For every PDF, the pipeline produces one row in a shared database (not a folder of files — see the [README](../README.md) for the storage details), holding these pieces:
 
-| File | What it is | Why it's useful |
+| Piece | What it is | Why it's useful |
 | --- | --- | --- |
-| `01_summary.md` | A structured summary covering motivation, methodology, contributions, experimental results, **limitations**, and significance. | The "do I need to read the full thing?" triage document — and it's specifically prompted to surface failure modes, not just sell the paper. |
-| `02_symbolic_logic.md` | The paper's core claims restated in formal notation — definitions, theorems, algorithm pseudocode with complexity bounds, convergence conditions. | Strips marketing language down to the actual mathematical claims. Useful for spotting whether two papers are really making the same claim in different clothes. |
-| `03_cpp_examples.md` | Modern C++ implementations of the key algorithms, with comments mapping math → code. | Turns "I think I understand the method" into "here's code that runs." A sanity check on whether the paper is actually specified well enough to implement. |
-| `diagrams/` | Six Graphviz diagrams per paper — architecture, data flow, the core algorithm as a flowchart, a concept hierarchy, the training loop, and a comparison to prior work. | Six different angles on one paper. The flowchart view in particular often makes a dense method legible in a way the prose doesn't. |
-| `04_extras.md` | Critical analysis: open questions, connections to other work, deployment tradeoffs, a steelman, and the strongest critique. | This is the "what would a sharp colleague say in the reading group?" layer. |
-| `metadata.json` | An audit trail: which model was used, the file hash, timestamps, which sections finished. | Reproducibility, and the basis for resume-on-interruption (see below). |
+| Summary | A structured summary covering motivation, methodology, contributions, experimental results, **limitations**, and significance. | The "do I need to read the full thing?" triage document — and it's specifically prompted to surface failure modes, not just sell the paper. |
+| Symbolic logic | The paper's core claims restated in formal notation — definitions, theorems, algorithm pseudocode with complexity bounds, convergence conditions. | Strips marketing language down to the actual mathematical claims. Useful for spotting whether two papers are really making the same claim in different clothes. |
+| C++ examples | Modern C++ implementations of the key algorithms, with comments mapping math → code. | Turns "I think I understand the method" into "here's code that runs." A sanity check on whether the paper is actually specified well enough to implement. |
+| Diagrams | Up to six Graphviz diagrams per paper — architecture, data flow, the core algorithm as a flowchart, a concept hierarchy, the training loop, and a comparison to prior work. | Six different angles on one paper. The flowchart view in particular often makes a dense method legible in a way the prose doesn't. |
+| Extras | Critical analysis: open questions, connections to other work, deployment tradeoffs, a steelman, and the strongest critique. | This is the "what would a sharp colleague say in the reading group?" layer. |
+| Metadata | An audit trail: which model was used, the file hash, timestamps, which sections finished. | Reproducibility, and the basis for resume-on-interruption (see below). |
 
 Two honest caveats about these artifacts. First, they're **LLM-generated**, so they are a high-quality *starting point*, not a citable source — treat them like notes from a very well-read assistant who occasionally misremembers. Second, the C++ examples are illustrative; they compile-and-run as learning scaffolds, not as the paper's official reference implementation.
 
