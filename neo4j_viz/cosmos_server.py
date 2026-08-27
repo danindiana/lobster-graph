@@ -40,11 +40,22 @@ def run_query(query, **params):
 
 
 def fetch_graph():
-    nodes = run_query(NODE_QUERY)
-    edges = run_query(EDGE_QUERY)
+    # Fetch a dense subset of edges (limit 25,000 to prevent browser crash)
+    edges = run_query("MATCH (s)-[r]->(t) RETURN id(s) AS source, id(t) AS target, type(r) AS type LIMIT 25000")
+    
+    # Collect unique node IDs to avoid dangling edges on the frontend
+    node_ids = list({e["source"] for e in edges} | {e["target"] for e in edges})
+    
+    if not node_ids:
+        return {"nodes": [], "edges": []}
+        
+    # Fetch only the nodes that belong to the 25k edges
+    nodes = run_query(
+        "MATCH (n) WHERE id(n) IN $ids RETURN id(n) AS id, labels(n)[0] AS type, coalesce(n.name, n.title, toString(id(n))) AS label, n.fx AS fx, n.fy AS fy",
+        ids=node_ids
+    )
 
-    # Nodes with no fx/fy (isolated, no edges) fall back to origin so the
-    # frontend can still position every point deterministically.
+    # Nodes with no fx/fy fall back to origin so the frontend can position them
     for n in nodes:
         if n["fx"] is None:
             n["fx"] = 0.0
