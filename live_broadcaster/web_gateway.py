@@ -44,7 +44,8 @@ html = """
         </div>
         <div id="terminal"></div>
         <script>
-            var ws = new WebSocket("ws://" + location.host + "/ws");
+            var protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            var ws = new WebSocket(protocol + location.host + "/ws");
             var term = document.getElementById('terminal');
             
             ws.onmessage = function(event) {
