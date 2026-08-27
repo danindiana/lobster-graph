@@ -210,13 +210,14 @@ def main():
     touched_concepts = set()
     touched_algorithms = set()
     touched_codesnippets = set()
-    # Walk through each processed subfolder
-    for path in PROCESSED_DIR.iterdir():
-        if not path.is_dir() or path.name.startswith("_"):
-            continue
-
-        meta_file = path / "metadata.json"
-        if not meta_file.exists():
+    # Walk through each processed paper folder, at any depth. Newer processing
+    # runs (paper_proc_smrtevict.py) mirror the source PDF tree under
+    # _processed/ (e.g. _processed/<source-subfolder>/<paper>/metadata.json)
+    # so a paper's own folder is not always an immediate child of
+    # PROCESSED_DIR — rglob so nested corpora are found, not just flat ones.
+    for meta_file in sorted(PROCESSED_DIR.rglob("metadata.json")):
+        path = meta_file.parent
+        if any(part.startswith("_") for part in path.relative_to(PROCESSED_DIR).parts):
             continue
 
         # 1. Metadata
@@ -376,8 +377,12 @@ def main():
                     title = dot_file.stem[3:].replace("_", " ").title() # strip idx (e.g. 01_)
                     dot_src = dot_file.read_text(encoding="utf-8")
                     
-                    # Relativize SVG path for static hosting serving
-                    rel_svg = f"_processed/{path.name}/diagrams/{dot_file.stem}.svg"
+                    # Relativize SVG path for static hosting serving. Uses the
+                    # full path relative to PROCESSED_DIR (not just path.name)
+                    # so nested corpora (_processed/<subfolder>/<paper>/...)
+                    # resolve to the real on-disk location, not a truncated one.
+                    rel_paper_path = path.relative_to(PROCESSED_DIR).as_posix()
+                    rel_svg = f"_processed/{rel_paper_path}/diagrams/{dot_file.stem}.svg"
                     
                     session.run("""
                         MATCH (p:Paper {name: $paper_name})

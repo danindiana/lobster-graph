@@ -155,3 +155,79 @@ that didn't actually change). Covered by new unit tests in
   edges. Out of scope for this fix (doesn't affect correctness of the
   scoping above — a duplicate edge still makes `NOT (p)-[:DEFINES]->(c)`
   false either way), left untouched.
+
+## Part 3 (2026-08-27) — the deeper bug: a structural mismatch, not just timing
+
+After the scoped-query fix landed, checked whether papers already-completed
+on disk were actually reaching Neo4j. Two separate problems found:
+
+**3a. `aug_8_2026` (flat layout) — 1,458 of 1,820 completed papers were
+never synced.** Their on-disk completion timestamps (2026-07-29 →
+2026-08-19 00:59) span right up to 35 minutes before `config.json`'s
+`papers_dir` switched to `aug_12_2026` (01:34:01). Consistent with the
+Part 1/2 bug: early on, syncs succeeded (accounting for the 362 that did
+make it in); once the graph grew large enough, the pre-fix unconditional
+cartesian scan started reliably exceeding the caller's 120s timeout on
+every cycle, silently halting all further syncs from that directory while
+processing continued for weeks. **Fixed by backfilling**: ran the (now
+scoped, fast) importer directly against `aug_8_2026/_processed` — 1,458
+papers synced in 5:04 total wall-clock, confirming the scoped relationship
+queries hold up at real production scale (1,458 touched papers, thousands
+of touched concepts), not just the earlier 1-paper synthetic test.
+
+**3b. `aug_12_2026` (nested layout) — ALL 2,113+ completed papers were
+invisible to the importer, unconditionally, regardless of the timing fix.**
+`paper_proc_smrtevict.py` deliberately mirrors the source PDF tree under
+`_processed/` (code comment: *"Mirror the input tree under `_processed/` so
+subfolder structure is preserved"*) when the source corpus itself is
+organized into subfolders — output lands at
+`_processed/<source-subfolder>/<paper>/metadata.json`, one level deeper
+than a flat corpus. `neo4j_importer.py`'s per-paper walk
+(`PROCESSED_DIR.iterdir()`) only ever checked **immediate children** for
+`metadata.json` — it never descended into subfolders. Every paper under a
+nested corpus was therefore structurally unreachable, forever, independent
+of any timeout.
+
+**Fix**: changed the walk from `PROCESSED_DIR.iterdir()` to
+`sorted(PROCESSED_DIR.rglob("metadata.json"))`, deriving each paper's folder
+as `meta_file.parent` — finds papers at any depth, and is a no-op behavior
+change for flat corpora (verified: re-ran against the now-fully-synced
+`aug_8_2026` afterward, all 1,820 correctly recognized as unchanged and
+skipped, no duplicates, no regression). Also fixed a related bug this
+exposed: the Diagram `svg_path` property was built from `path.name` alone
+(just the paper's own leaf folder name), which for a nested corpus produces
+a truncated path that doesn't match the real on-disk location for static
+serving — changed to `path.relative_to(PROCESSED_DIR).as_posix()`, correct
+at any depth.
+
+Backfilled `aug_12_2026/_processed` the same way: 2,190 papers synced in
+10:22 total. Neo4j: 1,384 → 2,842 (Part 3a) → 5,032 (Part 3b) papers.
+
+**Scope check — how many other corpora were silently orphaned the same
+way?** A bounded `find /mnt/raid0 -iname _processed` plus known locations
+under `/home/jeb` turned up 14 more `_processed` directories never synced
+into this Neo4j instance, ~14,482 additional completed papers total:
+`July-30-2026/saved_go_crawlerv2` (801), 5× IETF proceedings/slides tranches
+(946+950+1069+1013+1189), `illoinois_edu` (555), `july_HF_Papers` (1368),
+`Aug_7_2026/papers_20260717_114100` (189), the repo-local
+`fork_2026-05-09T184929Z` (1034), and `~/Documents/AI-ML_Papers` plus its
+`transformers`/`EBF`/`nanobots` subfolders (5261+25+6+76). Backfilling all
+of these in one sequential pass (avoiding parallel writers against the same
+Neo4j instance).
+
+**Known limitation, not fixed**: `Paper` nodes are `MERGE`d globally by
+`paper_name` (usually the source filename). Checked for cross-corpus name
+collisions before backfilling: 1,131 of the 14,482 paper_names appear in
+more than one corpus. The large majority are genuine duplicates — the same
+arXiv ID or paper reprocessed across different crawl snapshots (e.g.
+`fork_2026-05-09T184929Z` looks like an earlier snapshot of
+`AI-ML_Papers` itself) — correctly deduplicating into one node is the
+*right* outcome there. A minority use generic numeric filenames
+(`01.pdf`, `17.pdf`, ...) inherited from different source sites (e.g. IETF
+slide decks vs. `illoinois_edu` papers) that are almost certainly
+*different* physical documents colliding on name — for those, whichever
+corpus syncs last wins the Paper node's properties. Pre-existing design
+limitation (paper identity was never more than the filename), not
+introduced by this session's changes, and not fixed here — flagging for
+awareness. A real fix would need a more unique Paper identity (e.g. content
+hash instead of filename).
