@@ -125,6 +125,25 @@ def parse_cpp_examples(content: str) -> list:
             })
     return examples
 
+def _sanitize_items(items) -> list:
+    """The per-item LLM JSON output occasionally doesn't match the expected
+    {name, ...} dict shape (e.g. a bare string in the list instead of an
+    object). Drop anything that isn't a dict rather than letting a single
+    malformed paper crash the whole corpus's sync."""
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _safe_str(d: dict, key: str) -> str:
+    """dict.get(key, "") only substitutes the default when the key is
+    ABSENT — an explicit `"key": null` in the source JSON makes it return
+    None instead, which crashes a Cypher MERGE on that property. Coerce
+    None/non-string values to an empty string."""
+    val = d.get(key)
+    return val if isinstance(val, str) else ""
+
+
 def extract_touched_names(defs: list, algs: list, cpp_examples: list) -> tuple:
     """Given the parsed def/algorithm/code-example lists for ONE synced paper,
     return (Concept names, Algorithm names, CodeSnippet titles) touched this
@@ -132,9 +151,9 @@ def extract_touched_names(defs: list, algs: list, cpp_examples: list) -> tuple:
     loop below. Used to scope the relationship-inference queries to just what
     changed instead of a full cartesian graph scan.
     """
-    concept_names = {d.get("name", "") for d in defs} - {""}
-    algorithm_names = {a.get("name", "") for a in algs} - {""}
-    codesnippet_titles = {c.get("name", c.get("title", "")) for c in cpp_examples} - {""}
+    concept_names = {_safe_str(d, "name") for d in defs} - {""}
+    algorithm_names = {_safe_str(a, "name") for a in algs} - {""}
+    codesnippet_titles = {_safe_str(c, "name") or _safe_str(c, "title") for c in cpp_examples} - {""}
     return concept_names, algorithm_names, codesnippet_titles
 
 def main():
@@ -243,161 +262,165 @@ def main():
         touched_papers.add(paper_name)
         print(f"\n📂 Processing paper folder: {path.name}...")
 
-        # Initialize default properties
-        motivation = ""
-        methodology = ""
-        contributions = ""
-        limitations = ""
-        significance = ""
-        extras = ""
-        defs, algs, cpp_examples = [], [], []
+        try:
+            # Initialize default properties
+            motivation = ""
+            methodology = ""
+            contributions = ""
+            limitations = ""
+            significance = ""
+            extras = ""
+            defs, algs, cpp_examples = [], [], []
 
-        # 2. Parse Summary
-        summary_file = path / "01_summary.md"
-        if summary_file.exists():
-            content = summary_file.read_text(encoding="utf-8")
-            sum_sections = clean_markdown_headers(content)
-            motivation = sum_sections.get("Motivation & Problem Statement", "")
-            methodology = sum_sections.get("Core Methodology", "")
-            contributions = sum_sections.get("Key Contributions", "")
-            limitations = sum_sections.get("Limitations & Failure Modes", "")
-            significance = sum_sections.get("Significance", "")
+            # 2. Parse Summary
+            summary_file = path / "01_summary.md"
+            if summary_file.exists():
+                content = summary_file.read_text(encoding="utf-8")
+                sum_sections = clean_markdown_headers(content)
+                motivation = sum_sections.get("Motivation & Problem Statement", "")
+                methodology = sum_sections.get("Core Methodology", "")
+                contributions = sum_sections.get("Key Contributions", "")
+                limitations = sum_sections.get("Limitations & Failure Modes", "")
+                significance = sum_sections.get("Significance", "")
 
-        # 3. Parse Extras
-        extras_file = path / "04_extras.md"
-        if extras_file.exists():
-            extras = extras_file.read_text(encoding="utf-8").strip()
+            # 3. Parse Extras
+            extras_file = path / "04_extras.md"
+            if extras_file.exists():
+                extras = extras_file.read_text(encoding="utf-8").strip()
 
-        # Create Paper Node
-        with driver.session() as session:
-            session.run("""
-                MERGE (p:Paper {name: $name})
-                SET p += {
-                    pdf_path: $pdf_path,
-                    page_count: $page_count,
-                    chunk_strategy: $chunk_strategy,
-                    processed_at: $processed_at,
-                    paper_hash: $paper_hash,
-                    motivation: $motivation,
-                    methodology: $methodology,
-                    contributions: $contributions,
-                    limitations: $limitations,
-                    significance: $significance,
-                    extras: $extras
-                }
-            """, {
-                "name": paper_name,
-                "pdf_path": pdf_path,
-                "page_count": page_count,
-                "chunk_strategy": chunk_strategy,
-                "processed_at": processed_at,
-                "paper_hash": paper_hash,
-                "motivation": motivation,
-                "methodology": methodology,
-                "contributions": contributions,
-                "limitations": limitations,
-                "significance": significance,
-                "extras": extras
-            })
-            print(f"  📝 Created Paper node: {paper_name}")
-
-        # 4. Parse Logic Definitions, Theorems, Algorithms
-        logic_file = path / "02_symbolic_logic.md"
-        if logic_file.exists():
-            logic_content = logic_file.read_text(encoding="utf-8")
-            
-            logic_json = extract_json_block(logic_content)
-            if logic_json and ("concepts" in logic_json or "theorems" in logic_json or "algorithms" in logic_json):
-                defs = logic_json.get("concepts", [])
-                theorems = logic_json.get("theorems", [])
-                algs = logic_json.get("algorithms", [])
-            else:
-                logic_sections = clean_markdown_headers(logic_content)
-                defs = parse_logic_definitions(logic_sections.get("1. Core Definitions & Notation", ""))
-                theorems = parse_logic_theorems(logic_sections.get("2. Key Theorems & Propositions", ""))
-                algs = parse_logic_algorithms(logic_sections.get("3. Algorithm Formalisation", ""))
-            
+            # Create Paper Node
             with driver.session() as session:
-                for d in defs:
-                    session.run("""
-                        MATCH (p:Paper {name: $paper_name})
-                        MERGE (c:Concept {name: $name})
-                        ON CREATE SET c.definition = $definition
-                        CREATE (p)-[:DEFINES]->(c)
-                    """, {"paper_name": paper_name, "name": d.get("name", ""), "definition": d.get("description", d.get("definition", ""))})
-            print(f"  🔣 Imported {len(defs)} Core Concepts")
+                session.run("""
+                    MERGE (p:Paper {name: $name})
+                    SET p += {
+                        pdf_path: $pdf_path,
+                        page_count: $page_count,
+                        chunk_strategy: $chunk_strategy,
+                        processed_at: $processed_at,
+                        paper_hash: $paper_hash,
+                        motivation: $motivation,
+                        methodology: $methodology,
+                        contributions: $contributions,
+                        limitations: $limitations,
+                        significance: $significance,
+                        extras: $extras
+                    }
+                """, {
+                    "name": paper_name,
+                    "pdf_path": pdf_path,
+                    "page_count": page_count,
+                    "chunk_strategy": chunk_strategy,
+                    "processed_at": processed_at,
+                    "paper_hash": paper_hash,
+                    "motivation": motivation,
+                    "methodology": methodology,
+                    "contributions": contributions,
+                    "limitations": limitations,
+                    "significance": significance,
+                    "extras": extras
+                })
+                print(f"  📝 Created Paper node: {paper_name}")
 
-            with driver.session() as session:
-                for t in theorems:
-                    session.run("""
-                        MATCH (p:Paper {name: $paper_name})
-                        MERGE (t:Theorem {name: $name})
-                        SET t.statement = $statement
-                        MERGE (p)-[:PROPOSES]->(t)
-                    """, {"paper_name": paper_name, "name": t.get("name", ""), "statement": t.get("statement", "")})
-            print(f"  📐 Imported {len(theorems)} Theorems")
-
-            with driver.session() as session:
-                for a in algs:
-                    session.run("""
-                        MATCH (p:Paper {name: $paper_name})
-                        MERGE (alg:Algorithm {name: $name})
-                        SET alg.pseudocode = $code, alg.invariant = $invariant
-                        MERGE (p)-[:FORMALISES]->(alg)
-                    """, {"paper_name": paper_name, "name": a.get("name", ""), "code": a.get("pseudocode", ""), "invariant": a.get("invariant", "")})
-            print(f"  🤖 Imported {len(algs)} Algorithms")
-
-        # 5. Parse C++ Examples
-        cpp_file = path / "03_cpp_examples.md"
-        if cpp_file.exists():
-            cpp_content = cpp_file.read_text(encoding="utf-8")
+            # 4. Parse Logic Definitions, Theorems, Algorithms
+            logic_file = path / "02_symbolic_logic.md"
+            if logic_file.exists():
+                logic_content = logic_file.read_text(encoding="utf-8")
             
-            cpp_json = extract_json_block(cpp_content)
-            if cpp_json and "examples" in cpp_json:
-                cpp_examples = cpp_json.get("examples", [])
-            else:
-                cpp_examples = parse_cpp_examples(cpp_content)
+                logic_json = extract_json_block(logic_content)
+                if logic_json and ("concepts" in logic_json or "theorems" in logic_json or "algorithms" in logic_json):
+                    defs = _sanitize_items(logic_json.get("concepts", []))
+                    theorems = _sanitize_items(logic_json.get("theorems", []))
+                    algs = _sanitize_items(logic_json.get("algorithms", []))
+                else:
+                    logic_sections = clean_markdown_headers(logic_content)
+                    defs = parse_logic_definitions(logic_sections.get("1. Core Definitions & Notation", ""))
+                    theorems = parse_logic_theorems(logic_sections.get("2. Key Theorems & Propositions", ""))
+                    algs = parse_logic_algorithms(logic_sections.get("3. Algorithm Formalisation", ""))
+            
+                with driver.session() as session:
+                    for d in defs:
+                        session.run("""
+                            MATCH (p:Paper {name: $paper_name})
+                            MERGE (c:Concept {name: $name})
+                            ON CREATE SET c.definition = $definition
+                            CREATE (p)-[:DEFINES]->(c)
+                        """, {"paper_name": paper_name, "name": _safe_str(d, "name"), "definition": _safe_str(d, "description") or _safe_str(d, "definition")})
+                print(f"  🔣 Imported {len(defs)} Core Concepts")
+
+                with driver.session() as session:
+                    for t in theorems:
+                        session.run("""
+                            MATCH (p:Paper {name: $paper_name})
+                            MERGE (t:Theorem {name: $name})
+                            SET t.statement = $statement
+                            MERGE (p)-[:PROPOSES]->(t)
+                        """, {"paper_name": paper_name, "name": _safe_str(t, "name"), "statement": _safe_str(t, "statement")})
+                print(f"  📐 Imported {len(theorems)} Theorems")
+
+                with driver.session() as session:
+                    for a in algs:
+                        session.run("""
+                            MATCH (p:Paper {name: $paper_name})
+                            MERGE (alg:Algorithm {name: $name})
+                            SET alg.pseudocode = $code, alg.invariant = $invariant
+                            MERGE (p)-[:FORMALISES]->(alg)
+                        """, {"paper_name": paper_name, "name": _safe_str(a, "name"), "code": _safe_str(a, "pseudocode"), "invariant": _safe_str(a, "invariant")})
+                print(f"  🤖 Imported {len(algs)} Algorithms")
+
+            # 5. Parse C++ Examples
+            cpp_file = path / "03_cpp_examples.md"
+            if cpp_file.exists():
+                cpp_content = cpp_file.read_text(encoding="utf-8")
+            
+                cpp_json = extract_json_block(cpp_content)
+                if cpp_json and "examples" in cpp_json:
+                    cpp_examples = _sanitize_items(cpp_json.get("examples", []))
+                else:
+                    cpp_examples = parse_cpp_examples(cpp_content)
                 
-            with driver.session() as session:
-                for c in cpp_examples:
-                    session.run("""
-                        MATCH (p:Paper {name: $paper_name})
-                        MERGE (code:CodeSnippet {title: $title})
-                        SET code.language = 'cpp', code.code = $code
-                        MERGE (p)-[:PROVIDES_CODE]->(code)
-                    """, {"paper_name": paper_name, "title": c.get("name", c.get("title", "")), "code": c.get("code", "")})
-            print(f"  💻 Imported {len(cpp_examples)} C++ Examples")
+                with driver.session() as session:
+                    for c in cpp_examples:
+                        session.run("""
+                            MATCH (p:Paper {name: $paper_name})
+                            MERGE (code:CodeSnippet {title: $title})
+                            SET code.language = 'cpp', code.code = $code
+                            MERGE (p)-[:PROVIDES_CODE]->(code)
+                        """, {"paper_name": paper_name, "title": _safe_str(c, "name") or _safe_str(c, "title"), "code": _safe_str(c, "code")})
+                print(f"  💻 Imported {len(cpp_examples)} C++ Examples")
 
-        # 6. Parse Diagrams (.dot files)
-        diagrams_dir = path / "diagrams"
-        if diagrams_dir.exists():
-            dot_files = list(diagrams_dir.glob("*.dot"))
-            with driver.session() as session:
-                for dot_file in dot_files:
-                    title = dot_file.stem[3:].replace("_", " ").title() # strip idx (e.g. 01_)
-                    dot_src = dot_file.read_text(encoding="utf-8")
+            # 6. Parse Diagrams (.dot files)
+            diagrams_dir = path / "diagrams"
+            if diagrams_dir.exists():
+                dot_files = list(diagrams_dir.glob("*.dot"))
+                with driver.session() as session:
+                    for dot_file in dot_files:
+                        title = dot_file.stem[3:].replace("_", " ").title() # strip idx (e.g. 01_)
+                        dot_src = dot_file.read_text(encoding="utf-8")
                     
-                    # Relativize SVG path for static hosting serving. Uses the
-                    # full path relative to PROCESSED_DIR (not just path.name)
-                    # so nested corpora (_processed/<subfolder>/<paper>/...)
-                    # resolve to the real on-disk location, not a truncated one.
-                    rel_paper_path = path.relative_to(PROCESSED_DIR).as_posix()
-                    rel_svg = f"_processed/{rel_paper_path}/diagrams/{dot_file.stem}.svg"
+                        # Relativize SVG path for static hosting serving. Uses the
+                        # full path relative to PROCESSED_DIR (not just path.name)
+                        # so nested corpora (_processed/<subfolder>/<paper>/...)
+                        # resolve to the real on-disk location, not a truncated one.
+                        rel_paper_path = path.relative_to(PROCESSED_DIR).as_posix()
+                        rel_svg = f"_processed/{rel_paper_path}/diagrams/{dot_file.stem}.svg"
                     
-                    session.run("""
-                        MATCH (p:Paper {name: $paper_name})
-                        MERGE (d:Diagram {title: $title})
-                        SET d.dot_src = $dot, d.svg_path = $svg
-                        MERGE (p)-[:HAS_DIAGRAM]->(d)
-                    """, {"paper_name": paper_name, "title": title, "dot": dot_src, "svg": rel_svg})
-            print(f"  📊 Imported {len(dot_files)} DOT/SVG Diagrams")
+                        session.run("""
+                            MATCH (p:Paper {name: $paper_name})
+                            MERGE (d:Diagram {title: $title})
+                            SET d.dot_src = $dot, d.svg_path = $svg
+                            MERGE (p)-[:HAS_DIAGRAM]->(d)
+                        """, {"paper_name": paper_name, "title": title, "dot": dot_src, "svg": rel_svg})
+                print(f"  📊 Imported {len(dot_files)} DOT/SVG Diagrams")
 
-        # Fold this paper's parsed names into the running touched-sets used
-        # to scope the relationship-inference queries below.
-        c_names, a_names, code_titles = extract_touched_names(defs, algs, cpp_examples)
-        touched_concepts |= c_names
-        touched_algorithms |= a_names
-        touched_codesnippets |= code_titles
+            # Fold this paper's parsed names into the running touched-sets used
+            # to scope the relationship-inference queries below.
+            c_names, a_names, code_titles = extract_touched_names(defs, algs, cpp_examples)
+            touched_concepts |= c_names
+            touched_algorithms |= a_names
+            touched_codesnippets |= code_titles
+        except Exception as e:
+            print(f"  \u26a0\ufe0f  Error processing paper {paper_name!r} — skipping this paper, continuing batch: {e}")
+            continue
 
     # 7. Post-import relationship heuristic creation:
     # Look for matching concepts in other papers' motivation/methodology texts

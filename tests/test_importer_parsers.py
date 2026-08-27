@@ -258,3 +258,41 @@ class TestExtractTouchedNames:
         assert concepts == set()
         assert algorithms == set()
         assert snippets == set()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# _sanitize_items / _safe_str
+# ════════════════════════════════════════════════════════════════════════════
+class TestSanitizeItems:
+    """Guards against a real crash seen backfilling ~19k real papers: the
+    LLM occasionally emits a list item that isn't a {name, ...} object (a
+    bare string), or an explicit `"name": null` rather than omitting the
+    key. Both used to crash main() mid-corpus via AttributeError /
+    'MERGE cannot use a null property value' — losing every remaining
+    paper in that run. These must be dropped/coerced, not raise."""
+
+    def test_drops_non_dict_items(self):
+        assert imp._sanitize_items(["a bare string", 123, None, {"name": "ok"}]) == [{"name": "ok"}]
+
+    def test_non_list_input_yields_empty_list(self):
+        assert imp._sanitize_items("not a list") == []
+        assert imp._sanitize_items(None) == []
+
+    def test_empty_list_passes_through(self):
+        assert imp._sanitize_items([]) == []
+
+
+class TestSafeStr:
+    def test_missing_key_returns_empty_string(self):
+        assert imp._safe_str({}, "name") == ""
+
+    def test_explicit_null_returns_empty_string_not_none(self):
+        # dict.get(key, "") would return None here, not "" — the exact bug
+        # that crashed a Theorem MERGE on a null name property.
+        assert imp._safe_str({"name": None}, "name") == ""
+
+    def test_non_string_value_returns_empty_string(self):
+        assert imp._safe_str({"name": 42}, "name") == ""
+
+    def test_string_value_passes_through(self):
+        assert imp._safe_str({"name": "Tensor"}, "name") == "Tensor"
