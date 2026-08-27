@@ -125,6 +125,18 @@ def parse_cpp_examples(content: str) -> list:
             })
     return examples
 
+def extract_touched_names(defs: list, algs: list, cpp_examples: list) -> tuple:
+    """Given the parsed def/algorithm/code-example lists for ONE synced paper,
+    return (Concept names, Algorithm names, CodeSnippet titles) touched this
+    cycle — the same identity keys used as MERGE match keys in the per-paper
+    loop below. Used to scope the relationship-inference queries to just what
+    changed instead of a full cartesian graph scan.
+    """
+    concept_names = {d.get("name", "") for d in defs} - {""}
+    algorithm_names = {a.get("name", "") for a in algs} - {""}
+    codesnippet_titles = {c.get("name", c.get("title", "")) for c in cpp_examples} - {""}
+    return concept_names, algorithm_names, codesnippet_titles
+
 def main():
     import sys
     global PROCESSED_DIR
@@ -156,6 +168,19 @@ def main():
     # Remove the full database drop so background syncs don't cause sudden disconnects/blank screens
     print("🔄 Ensuring database graph is ready...")
 
+    # Property indexes so MATCH (x:Label {prop: $v}) lookups (used throughout
+    # the per-paper loop below, and by the touched-node-scoped relationship
+    # queries in step 7) can use an index seek instead of a full label scan.
+    # IF NOT EXISTS makes this a cheap no-op on every run after the first.
+    try:
+        with driver.session() as session:
+            session.run("CREATE INDEX paper_name_idx IF NOT EXISTS FOR (p:Paper) ON (p.name)")
+            session.run("CREATE INDEX concept_name_idx IF NOT EXISTS FOR (c:Concept) ON (c.name)")
+            session.run("CREATE INDEX theorem_name_idx IF NOT EXISTS FOR (t:Theorem) ON (t.name)")
+            session.run("CREATE INDEX algorithm_name_idx IF NOT EXISTS FOR (a:Algorithm) ON (a.name)")
+            session.run("CREATE INDEX codesnippet_title_idx IF NOT EXISTS FOR (c:CodeSnippet) ON (c.title)")
+    except Exception as e:
+        print(f"  ⚠️ Could not ensure indexes exist (continuing without them): {e}")
 
     if not PROCESSED_DIR.exists():
         print(f"❌ Processed directory does not exist: {PROCESSED_DIR}")
@@ -180,6 +205,11 @@ def main():
         print(f"  ⚠️ Could not pre-fetch synced hashes, will re-sync everything: {e}")
 
     skipped = 0
+    synced = 0
+    touched_papers = set()
+    touched_concepts = set()
+    touched_algorithms = set()
+    touched_codesnippets = set()
     # Walk through each processed subfolder
     for path in PROCESSED_DIR.iterdir():
         if not path.is_dir() or path.name.startswith("_"):
@@ -208,8 +238,10 @@ def main():
             skipped += 1
             continue
 
+        synced += 1
+        touched_papers.add(paper_name)
         print(f"\n📂 Processing paper folder: {path.name}...")
-        
+
         # Initialize default properties
         motivation = ""
         methodology = ""
@@ -217,7 +249,8 @@ def main():
         limitations = ""
         significance = ""
         extras = ""
-        
+        defs, algs, cpp_examples = [], [], []
+
         # 2. Parse Summary
         summary_file = path / "01_summary.md"
         if summary_file.exists():
@@ -354,40 +387,117 @@ def main():
                     """, {"paper_name": paper_name, "title": title, "dot": dot_src, "svg": rel_svg})
             print(f"  📊 Imported {len(dot_files)} DOT/SVG Diagrams")
 
+        # Fold this paper's parsed names into the running touched-sets used
+        # to scope the relationship-inference queries below.
+        c_names, a_names, code_titles = extract_touched_names(defs, algs, cpp_examples)
+        touched_concepts |= c_names
+        touched_algorithms |= a_names
+        touched_codesnippets |= code_titles
+
     # 7. Post-import relationship heuristic creation:
     # Look for matching concepts in other papers' motivation/methodology texts
     # and link concepts related to each other based on keyword matching
-    print("\n🔗 Generating concept inter-link relationships...")
+    #
+    # This is an unconditional full-graph cartesian product (Paper×Concept,
+    # Concept×Concept, Algorithm×Concept, CodeSnippet×Concept — ~84M pair
+    # comparisons at ~1400 papers/6300 concepts) with no index support for
+    # CONTAINS-on-toLower(), so it costs ~170-190s server-side regardless of
+    # corpus size delta. Running it every periodic sync (every 5 min) even
+    # when nothing changed is what intermittently tripped the caller's 120s
+    # subprocess timeout. Only run it when this pass actually synced new or
+    # changed papers.
+    if synced == 0:
+        print(f"⚡ Skipped {skipped} unchanged paper(s) (matching paper_hash already in graph)")
+        print("  ⏭️  No new/changed papers this cycle — skipping full-graph relationship rescan")
+        print("🎉 Graph database load complete!")
+        driver.close()
+        return
+
+    # Scoped to touched nodes rather than a full cartesian rescan: each
+    # relationship type runs as two statements, one filtered by each side
+    # (touched-side x ALL-of-other-label). This is equivalent in coverage to
+    # the original full scan restricted to "at least one side changed this
+    # cycle" — an edge can only newly become true if a property on one of its
+    # endpoints changed, and untouched<->untouched pairs were already
+    # resolved by a prior cycle. Cost is O(touched x all + all x touched)
+    # instead of O(all x all).
+    print("\n🔗 Generating concept inter-link relationships (scoped to touched nodes)...")
+    touched_papers_list = list(touched_papers)
+    touched_concepts_list = list(touched_concepts)
+    touched_algorithms_list = list(touched_algorithms)
+    touched_codesnippets_list = list(touched_codesnippets)
+
     with driver.session() as session:
-        # Link papers to concepts that are defined elsewhere but mentioned in their motivation/methodology
-        session.run("""
-            MATCH (p:Paper), (c:Concept)
-            WHERE NOT (p)-[:DEFINES]->(c) 
-              AND (toLower(p.motivation) CONTAINS toLower(c.name) 
-                   OR toLower(p.methodology) CONTAINS toLower(c.name))
-            MERGE (p)-[:MENTIONS]->(c)
-        """)
-        
-        # Concept-to-Concept relationships based on definitions referring to each other
-        session.run("""
-            MATCH (c1:Concept), (c2:Concept)
-            WHERE c1 <> c2 
-              AND toLower(c1.definition) CONTAINS toLower(c2.name)
-            MERGE (c1)-[:REFERS_TO]->(c2)
-        """)
-        
-        # Link Algorithms and Code snippets to Concepts if their names match
-        session.run("""
-            MATCH (a:Algorithm), (c:Concept)
-            WHERE toLower(a.name) CONTAINS toLower(c.name) 
-               OR toLower(c.name) CONTAINS toLower(a.name)
-            MERGE (a)-[:IMPLEMENTS]->(c)
-        """)
-        session.run("""
-            MATCH (code:CodeSnippet), (c:Concept)
-            WHERE toLower(code.title) CONTAINS toLower(c.name)
-            MERGE (code)-[:IMPLEMENTS]->(c)
-        """)
+        # MENTIONS: Paper -> Concept
+        if touched_papers_list:
+            session.run("""
+                MATCH (p:Paper), (c:Concept)
+                WHERE p.name IN $touched
+                  AND NOT (p)-[:DEFINES]->(c)
+                  AND (toLower(p.motivation) CONTAINS toLower(c.name)
+                       OR toLower(p.methodology) CONTAINS toLower(c.name))
+                MERGE (p)-[:MENTIONS]->(c)
+            """, {"touched": touched_papers_list})
+        if touched_concepts_list:
+            session.run("""
+                MATCH (p:Paper), (c:Concept)
+                WHERE c.name IN $touched
+                  AND NOT (p)-[:DEFINES]->(c)
+                  AND (toLower(p.motivation) CONTAINS toLower(c.name)
+                       OR toLower(p.methodology) CONTAINS toLower(c.name))
+                MERGE (p)-[:MENTIONS]->(c)
+            """, {"touched": touched_concepts_list})
+
+        # REFERS_TO: Concept -> Concept, based on definitions referring to each other
+        if touched_concepts_list:
+            session.run("""
+                MATCH (c1:Concept), (c2:Concept)
+                WHERE c1.name IN $touched
+                  AND c1 <> c2
+                  AND toLower(c1.definition) CONTAINS toLower(c2.name)
+                MERGE (c1)-[:REFERS_TO]->(c2)
+            """, {"touched": touched_concepts_list})
+            session.run("""
+                MATCH (c1:Concept), (c2:Concept)
+                WHERE c2.name IN $touched
+                  AND c1 <> c2
+                  AND toLower(c1.definition) CONTAINS toLower(c2.name)
+                MERGE (c1)-[:REFERS_TO]->(c2)
+            """, {"touched": touched_concepts_list})
+
+        # IMPLEMENTS: Algorithm -> Concept, if their names match
+        if touched_algorithms_list:
+            session.run("""
+                MATCH (a:Algorithm), (c:Concept)
+                WHERE a.name IN $touched
+                  AND (toLower(a.name) CONTAINS toLower(c.name)
+                       OR toLower(c.name) CONTAINS toLower(a.name))
+                MERGE (a)-[:IMPLEMENTS]->(c)
+            """, {"touched": touched_algorithms_list})
+        if touched_concepts_list:
+            session.run("""
+                MATCH (a:Algorithm), (c:Concept)
+                WHERE c.name IN $touched
+                  AND (toLower(a.name) CONTAINS toLower(c.name)
+                       OR toLower(c.name) CONTAINS toLower(a.name))
+                MERGE (a)-[:IMPLEMENTS]->(c)
+            """, {"touched": touched_concepts_list})
+
+        # IMPLEMENTS: CodeSnippet -> Concept, if title contains concept name
+        if touched_codesnippets_list:
+            session.run("""
+                MATCH (code:CodeSnippet), (c:Concept)
+                WHERE code.title IN $touched
+                  AND toLower(code.title) CONTAINS toLower(c.name)
+                MERGE (code)-[:IMPLEMENTS]->(c)
+            """, {"touched": touched_codesnippets_list})
+        if touched_concepts_list:
+            session.run("""
+                MATCH (code:CodeSnippet), (c:Concept)
+                WHERE c.name IN $touched
+                  AND toLower(code.title) CONTAINS toLower(c.name)
+                MERGE (code)-[:IMPLEMENTS]->(c)
+            """, {"touched": touched_concepts_list})
 
     print(f"⚡ Skipped {skipped} unchanged paper(s) (matching paper_hash already in graph)")
     print("🎉 Graph database load complete!")

@@ -228,3 +228,33 @@ class TestImporterLookupContract:
         md = "## 1. Core Definitions & Notation\nbody\n"
         assert "1. Core Definitions & Notation" in imp.clean_markdown_headers(md)
         assert all(k[0].isdigit() for k in self.LOGIC_KEYS)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# extract_touched_names
+# ════════════════════════════════════════════════════════════════════════════
+class TestExtractTouchedNames:
+    """extract_touched_names() feeds the touched-node sets that scope
+    main()'s relationship-inference queries. Its outputs must match the exact
+    identity keys (name/title) those queries later MERGE on, or the scoped
+    queries silently miss nodes."""
+
+    def test_collects_names_from_defs_algs_and_cpp_examples(self):
+        defs = [{"name": "Tensor"}, {"name": "Norm"}]
+        algs = [{"name": "Gradient Descent"}]
+        cpp = [{"name": "Attention"}, {"title": "FFN"}]  # exercise name/title fallback
+        concepts, algorithms, snippets = imp.extract_touched_names(defs, algs, cpp)
+        assert concepts == {"Tensor", "Norm"}
+        assert algorithms == {"Gradient Descent"}
+        assert snippets == {"Attention", "FFN"}
+
+    def test_empty_inputs_yield_empty_sets(self):
+        assert imp.extract_touched_names([], [], []) == (set(), set(), set())
+
+    def test_missing_name_keys_are_dropped_not_kept_as_empty_string(self):
+        concepts, algorithms, snippets = imp.extract_touched_names(
+            [{"definition": "no name key"}], [{}], [{}]
+        )
+        assert concepts == set()
+        assert algorithms == set()
+        assert snippets == set()
